@@ -24,9 +24,8 @@ jobs:
           flutter-version: '3.22.x'
           channel: 'stable'
 
-      - name: Create Platform Templates
+      - name: Generate Android Files
         run: |
-          flutter config --enable-android
           flutter create . --platforms=android --org com.saari.store
 
       - name: Install Packages
@@ -53,7 +52,7 @@ jobs:
           flutter-version: '3.22.x'
           channel: 'stable'
 
-      - name: Enable Windows Desktop
+      - name: Generate Windows Files
         run: |
           flutter config --enable-windows-desktop
           flutter create . --platforms=windows
