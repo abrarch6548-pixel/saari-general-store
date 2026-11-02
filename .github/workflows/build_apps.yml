@@ -1,0 +1,71 @@
+name: Build Mobile APK and PC ZIP
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.22.x'
+          channel: 'stable'
+
+      - name: Install Packages
+        run: flutter pub get
+
+      - name: Build Android APK
+        run: flutter build apk --split-per-abi
+
+      - name: Upload Mobile APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: saari-store-mobile-apk
+          path: build/app/outputs/flutter-apk/*.apk
+
+  build-windows:
+    name: Build Windows PC ZIP
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.22.x'
+          channel: 'stable'
+
+      - name: Enable Windows Desktop
+        run: |
+          flutter config --enable-windows-desktop
+          flutter create . --platforms=windows
+
+      - name: Install Packages
+        run: flutter pub get
+
+      - name: Build Windows App
+        run: flutter build windows --release
+
+      - name: Compress to ZIP
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "build\windows\x64\runner\Release\*" -DestinationPath "saari-store-windows-pc.zip"
+
+      - name: Upload PC ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: saari-store-windows-pc-zip
+          path: saari-store-windows-pc.zip
