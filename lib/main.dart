@@ -1,5 +1,5 @@
 // =====================================================================
-// PART 1 OF 5: IMPORTS, APP SETUP & DATA MODELS (WITH SERIAL NO)
+// PART 1 OF 3: IMPORTS, DATA MODELS & LOCAL STORAGE ENGINE
 // =====================================================================
 
 import 'dart:convert';
@@ -91,9 +91,7 @@ class TrashItem {
   TrashItem({required this.id, required this.type, required this.title, required this.subtitle, required this.deletedAt, required this.rawData});
   Map<String, dynamic> toMap() => {'id': id, 'type': type, 'title': title, 'subtitle': subtitle, 'deletedAt': deletedAt, 'rawData': rawData};
   factory TrashItem.fromMap(Map<String, dynamic> m) => TrashItem(id: m['id'] ?? '', type: m['type'] ?? '', title: m['title'] ?? '', subtitle: m['subtitle'] ?? '', deletedAt: m['deletedAt'] ?? '', rawData: m['rawData'] ?? {});
-}// =====================================================================
-// PART 2 OF 5: STATE, STORAGE, NATIVE FOLDER PICKER & CLOUD SYNC
-// =====================================================================
+}
 
 class MainStoreScreen extends StatefulWidget {
   const MainStoreScreen({super.key});
@@ -224,19 +222,16 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
     return stock;
   }
 
-  // Native File Manager Folder Picker
   Future<Directory?> _promptFolderSelection() async {
     try {
-      String? selectedPath = await FilePicker.platform.getDirectoryPath(dialogTitle: 'Select Folder to Save File');
-      if (selectedPath != null && selectedPath.isNotEmpty) {
-        final d = Directory(selectedPath);
+      String? path = await FilePicker.platform.getDirectoryPath(dialogTitle: 'Select Folder');
+      if (path != null && path.isNotEmpty) {
+        final d = Directory(path);
         if (!await d.exists()) await d.create(recursive: true);
         return d;
       }
     } catch (_) {}
-
-    final docsDir = await getApplicationDocumentsDirectory();
-    return docsDir;
+    return await getApplicationDocumentsDirectory();
   }
 
   Future<void> _syncWithCloud({bool silent = false}) async {
@@ -342,7 +337,7 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
     );
     return pinResult ?? false;
   }// =====================================================================
-// PART 3 OF 5: REQUISITIONS, PREV BALANCE, RECEIVE GOODS & EXPORT
+// PART 2 OF 3: REQUISITIONS & JP PROFILES WITH SERIAL NUMBER ISSUANCE
 // =====================================================================
 
   Widget _buildRequisitionsScreen() {
@@ -658,9 +653,7 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
       await file.writeAsString(html.toString());
       if (mounted) showDialog(context: context, builder: (ctx) => AlertDialog(title: const Text('PDF Saved'), content: SelectableText('Saved in:\n${file.path}'), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))]));
     }
-  }// =====================================================================
-// PART 4 OF 5: JP PROFILES, SERIAL NO ISSUANCE & RETURNS SCREEN
-// =====================================================================
+  }
 
   Widget _buildJpScreen() {
     return Scaffold(
@@ -1003,8 +996,8 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
                 child: const Text('Confirm Issue'),
               ),
             ],
-          ),
-        ),
+          );
+        },
       ),
     );
   }
@@ -1039,7 +1032,9 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
       await file.writeAsString(html.toString());
       if (mounted) showDialog(context: context, builder: (ctx) => AlertDialog(title: const Text('PDF Ready'), content: SelectableText('Saved in:\n${file.path}'), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))]));
     }
-  }
+  }// =====================================================================
+// PART 3 OF 3: RETURNS SCREEN, STOCK ADJUST, RECYCLE BIN & SETTINGS
+// =====================================================================
 
   Widget _buildReturnsAndAlarmsScreen() {
     String q = '';
@@ -1117,9 +1112,7 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
         );
       },
     );
-  }// =====================================================================
-// PART 5 OF 5: CATALOG, STOCK ADJUST, EXCEL/PDF, RECYCLE BIN & SETTINGS
-// =====================================================================
+  }
 
   Widget _buildCatalogScreen() {
     return Scaffold(
@@ -1470,6 +1463,42 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
     );
   }
 
+  void _openChangePinDialog() {
+    final oCtrl = TextEditingController();
+    final nCtrl = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Change Master PIN'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(controller: oCtrl, obscureText: true, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Current PIN')),
+            const SizedBox(height: 6),
+            TextField(controller: nCtrl, obscureText: true, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'New PIN')),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0B2545)),
+            onPressed: () {
+              if (oCtrl.text.trim() == _securityPin.trim() && nCtrl.text.trim().isNotEmpty) {
+                setState(() => _securityPin = nCtrl.text.trim());
+                _saveData();
+                Navigator.pop(ctx);
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('PIN Changed Successfully!')));
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Current PIN ghalat hai!')));
+              }
+            },
+            child: const Text('Save PIN', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildSettingsScreen() {
     final urlCtrl = TextEditingController(text: _firebaseUrl);
     final keyCtrl = TextEditingController(text: _cloudStoreId);
@@ -1477,28 +1506,35 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
     return ListView(
       padding: const EdgeInsets.all(14),
       children: [
-        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-          const Text('Settings & Database', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-          IconButton(icon: const Icon(Icons.lock, color: Colors.red), onPressed: () => setState(() { _isSettingsUnlocked = false; _navIndex = 0; })),
-        ]),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text('Settings & Configuration', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            IconButton(icon: const Icon(Icons.lock, color: Colors.red), onPressed: () => setState(() { _isSettingsUnlocked = false; _navIndex = 0; })),
+          ],
+        ),
         TextField(controller: urlCtrl, decoration: const InputDecoration(labelText: 'Firebase URL')),
         const SizedBox(height: 6),
         TextField(controller: keyCtrl, decoration: const InputDecoration(labelText: 'Branch Key')),
         const SizedBox(height: 8),
-        ElevatedButton(onPressed: () { setState(() { _firebaseUrl = urlCtrl.text.trim(); _cloudStoreId = keyCtrl.text.trim(); }); _saveData(); _syncWithCloud(silent: false); }, child: const Text('Save Firebase')),
+        ElevatedButton(
+          onPressed: () {
+            setState(() { _firebaseUrl = urlCtrl.text.trim(); _cloudStoreId = keyCtrl.text.trim(); });
+            _saveData();
+            _syncWithCloud(silent: false);
+          },
+          child: const Text('Save Firebase'),
+        ),
         const Divider(height: 20),
         ListTile(
           title: const Text('Master PIN Security', style: TextStyle(fontWeight: FontWeight.bold)),
           subtitle: Text('Current PIN: $_securityPin'),
           trailing: ElevatedButton(
-            onPressed: () {
-              final nCtrl = TextEditingController();
-              showDialog(context: context, builder: (ctx) => AlertDialog(title: const Text('New PIN'), content: TextField(controller: nCtrl, keyboardType: TextInputType.number), actions: [ElevatedButton(onPressed: () { if (nCtrl.text.isNotEmpty) { setState(() => _securityPin = nCtrl.text.trim()); _saveData(); Navigator.pop(ctx); } }, child: const Text('Save'))]));
-            },
+            onPressed: _openChangePinDialog,
             child: const Text('Change PIN'),
           ),
         ),
       ],
     );
   }
-        }
+}
