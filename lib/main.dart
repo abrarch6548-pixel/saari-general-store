@@ -1,5 +1,5 @@
 // =====================================================================
-// PART 1 OF 3: MODELS, STORAGE & ERROR-FREE FOLDER ENGINE
+// PART 1 OF 3: MODELS, STORAGE, SYNC & FOLDER PICKER
 // =====================================================================
 
 import 'dart:convert';
@@ -107,10 +107,13 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
   List<TrashItem> recycleBin = [];
 
   List<String> deletedItemIds = [], deletedJpIds = [], deletedTxIds = [], deletedReqIds = [];
-  Set<String> touchedIds = {};
+  String? touchedId;
 
   final List<String> commonUoms = ['Pcs', 'Mtr', 'Kg', 'Ltr', 'Box', 'Roll', 'Set', 'Pair', 'Drum', 'Can', 'Pkt', 'Bundle', 'Bag', 'Sheet'];
   final List<String> commonCategories = ['General', 'Tools & Tackles', 'Safety & PPE', 'Electrical', 'Mechanical Spares', 'Welding Consumables', 'Chemical & Paint', 'Civil Material'];
+
+  final List<Color> dateBgPalette = const [Color(0xFFEBF5FF), Color(0xFFFEF3C7), Color(0xFFE8F5E9), Color(0xFFF3E8FF), Color(0xFFFFEDD5), Color(0xFFFCE7F3)];
+  final List<Color> dateBorderPalette = const [Color(0xFF3B82F6), Color(0xFFD97706), Color(0xFF10B981), Color(0xFF8B5CF6), Color(0xFFF97316), Color(0xFFEC4899)];
 
   String _securityPin = '1234', _firebaseUrl = '', _cloudStoreId = 'saari_general_store', _lastSyncStatus = 'Not Synced';
   bool _isSyncing = false, _isSettingsUnlocked = false;
@@ -124,18 +127,15 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
   }
 
   void _toggleTouch(String id) {
-    setState(() {
-      if (touchedIds.contains(id)) touchedIds.remove(id);
-      else touchedIds.add(id);
-    });
+    setState(() { touchedId = (touchedId == id) ? null : id; });
   }
 
-  BoxDecoration _cardTouchStyle(String id) {
-    final isT = touchedIds.contains(id);
+  BoxDecoration _cardTouchStyle(String id, {Color? defaultBg, Color? defaultBorder}) {
+    final isT = (touchedId == id);
     return BoxDecoration(
-      color: isT ? const Color(0xFFFEF3C7) : Colors.white,
+      color: isT ? const Color(0xFFFEF3C7) : (defaultBg ?? Colors.white),
       borderRadius: BorderRadius.circular(8),
-      border: Border.all(color: isT ? const Color(0xFFF25F22) : Colors.black12, width: isT ? 2.0 : 1.0),
+      border: Border.all(color: isT ? const Color(0xFFF25F22) : (defaultBorder ?? Colors.black12), width: isT ? 2.2 : 1.0),
     );
   }
 
@@ -236,38 +236,32 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
     if (!mounted) return dlDir ?? docsDir;
     final chosen = await showDialog<String>(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (context, setDState) => AlertDialog(
-          title: const Text('Save File Location', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (dlDir != null)
-                ListTile(
-                  leading: const Icon(Icons.download, color: Colors.blue),
-                  title: const Text('Downloads Folder', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                  subtitle: Text(dlDir.path, style: const TextStyle(fontSize: 10)),
-                  onTap: () => Navigator.pop(ctx, dlDir!.path),
-                ),
+      builder: (ctx) => AlertDialog(
+        title: const Text('Save File Location', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (dlDir != null)
               ListTile(
-                leading: const Icon(Icons.folder, color: Colors.amber),
-                title: const Text('Documents Folder', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                subtitle: Text(docsDir.path, style: const TextStyle(fontSize: 10)),
-                onTap: () => Navigator.pop(ctx, docsDir.path),
+                leading: const Icon(Icons.download, color: Colors.blue),
+                title: const Text('Downloads Folder', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                subtitle: Text(dlDir.path, style: const TextStyle(fontSize: 10)),
+                onTap: () => Navigator.pop(ctx, dlDir!.path),
               ),
-              const Divider(),
-              TextField(
-                controller: pathCtrl,
-                style: const TextStyle(fontSize: 11),
-                decoration: const InputDecoration(labelText: 'Custom Folder Path'),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, null), child: const Text('Cancel')),
-            ElevatedButton(onPressed: () => Navigator.pop(ctx, pathCtrl.text.trim()), child: const Text('Save Here')),
+            ListTile(
+              leading: const Icon(Icons.folder, color: Colors.amber),
+              title: const Text('Documents Folder', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+              subtitle: Text(docsDir.path, style: const TextStyle(fontSize: 10)),
+              onTap: () => Navigator.pop(ctx, docsDir.path),
+            ),
+            const Divider(),
+            TextField(controller: pathCtrl, style: const TextStyle(fontSize: 11), decoration: const InputDecoration(labelText: 'Custom Folder Path')),
           ],
         ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, null), child: const Text('Cancel')),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx, pathCtrl.text.trim()), child: const Text('Save Here')),
+        ],
       ),
     );
 
@@ -819,6 +813,11 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
               return true;
             }).toList();
 
+            final uniqueDates = <String>[];
+            for (var t in filteredTx) {
+              if (!uniqueDates.contains(t.date)) uniqueDates.add(t.date);
+            }
+
             return Scaffold(
               appBar: AppBar(
                 backgroundColor: const Color(0xFF0B2545),
@@ -872,18 +871,41 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
                               bool isIss = t.type == 'ISSUE';
                               String srInfo = t.serialNo.isNotEmpty ? ' | Sr: ${t.serialNo}' : '';
 
-                              return Container(
-                                margin: const EdgeInsets.only(bottom: 6),
-                                decoration: _cardTouchStyle(t.id),
-                                child: ListTile(
-                                  onTap: () => _toggleTouch(t.id),
-                                  leading: Icon(isIss ? Icons.arrow_upward : Icons.assignment_return, color: isIss ? Colors.orange : Colors.teal),
-                                  title: Text('${t.itemName} - ${t.qty} ${t.uom}$srInfo', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                                  subtitle: Text('Date: ${t.date} ${t.isReturnable ? (t.isReturned ? "(Returned)" : "(Due: ${t.returnDueDate})") : ""}${t.hasAlarm ? " | ⏰ Alarm" : ""}'),
-                                  trailing: t.isReturnable && !t.isReturned
-                                      ? ElevatedButton(onPressed: () => _markItemReturned(t, () => setPState(() {})), child: const Text('Return', style: TextStyle(fontSize: 10)))
-                                      : Chip(label: Text(t.type, style: const TextStyle(fontSize: 9, color: Colors.white)), backgroundColor: isIss ? Colors.orange : Colors.teal),
-                                ),
+                              int dateIdx = uniqueDates.indexOf(t.date);
+                              Color dateBg = dateBgPalette[dateIdx % dateBgPalette.length];
+                              Color dateBorder = dateBorderPalette[dateIdx % dateBorderPalette.length];
+                              bool isFirstOfDate = (idx == 0) || (filteredTx[filteredTx.length - idx].date != t.date);
+
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (isFirstOfDate)
+                                    Container(
+                                      margin: const EdgeInsets.only(top: 8, bottom: 4, left: 4),
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                      decoration: BoxDecoration(color: dateBorder.withOpacity(0.15), borderRadius: BorderRadius.circular(4), border: Border.all(color: dateBorder, width: 0.8)),
+                                      child: Text('📅 Tarikh: ${t.date}', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: dateBorder)),
+                                    ),
+                                  Container(
+                                    margin: const EdgeInsets.only(bottom: 6),
+                                    decoration: _cardTouchStyle(t.id, defaultBg: dateBg, defaultBorder: dateBorder),
+                                    child: ListTile(
+                                      onTap: () => _toggleTouch(t.id),
+                                      leading: Icon(isIss ? Icons.arrow_upward : Icons.assignment_return, color: isIss ? Colors.orange.shade800 : Colors.teal.shade800),
+                                      title: Text('${t.itemName} - ${t.qty} ${t.uom}$srInfo', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                                      subtitle: Text('${t.remarks.isEmpty ? "" : "${t.remarks} | "}${t.isReturnable ? (t.isReturned ? "Returned ✅" : "Due: ${t.returnDueDate} ⚠️") : "Consumed"}${t.hasAlarm ? " ⏰" : ""}'),
+                                      trailing: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          if (t.isReturnable && !t.isReturned)
+                                            ElevatedButton(onPressed: () => _markItemReturned(t, () => setPState(() {})), child: const Text('Return', style: TextStyle(fontSize: 10))),
+                                          IconButton(icon: const Icon(Icons.edit, size: 16, color: Colors.blue), onPressed: () => _editStoreTransaction(t, () => setPState(() {}))),
+                                          IconButton(icon: const Icon(Icons.delete, size: 16, color: Colors.red), onPressed: () => _deleteStoreTransaction(t, () => setPState(() {}))),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               );
                             },
                           ),
@@ -895,6 +917,71 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
         ),
       ),
     );
+  }
+
+  void _editStoreTransaction(StoreTx t, VoidCallback onDone) async {
+    if (!await _authenticateAction('Edit Issued Record')) return;
+    final qCtrl = TextEditingController(text: t.qty.toString());
+    final srCtrl = TextEditingController(text: t.serialNo);
+    final remCtrl = TextEditingController(text: t.remarks);
+
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Edit Issue: ${t.itemName}', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(controller: qCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: 'Quantity (${t.uom}) *')),
+            const SizedBox(height: 6),
+            TextField(controller: srCtrl, decoration: const InputDecoration(labelText: 'Serial No (Optional)')),
+            const SizedBox(height: 6),
+            TextField(controller: remCtrl, decoration: const InputDecoration(labelText: 'Remarks')),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () {
+              double nq = double.tryParse(qCtrl.text) ?? 0;
+              if (nq <= 0) return;
+              setState(() {
+                t.qty = nq;
+                t.serialNo = srCtrl.text.trim();
+                t.remarks = remCtrl.text.trim();
+                t.updatedAt = DateTime.now().toIso8601String();
+              });
+              _saveData();
+              _syncWithCloud(silent: true);
+              Navigator.pop(ctx);
+              onDone();
+            },
+            child: const Text('Update'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _deleteStoreTransaction(StoreTx t, VoidCallback onDone) async {
+    if (!await _authenticateAction('Delete Issued Record')) return;
+    setState(() {
+      transactions.removeWhere((x) => x.id == t.id);
+      deletedTxIds.add(t.id);
+      recycleBin.insert(0, TrashItem(
+        id: t.id,
+        type: 'TX',
+        title: 'Issue: ${t.itemName} (${t.qty} ${t.uom})',
+        subtitle: 'JP: ${t.jpName} | Date: ${t.date} | Sr: ${t.serialNo}',
+        deletedAt: DateTime.now().toIso8601String(),
+        rawData: t.toMap(),
+      ));
+    });
+    _saveData();
+    _syncWithCloud(silent: true);
+    onDone();
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Issued item deleted & stock returned to store!')));
   }
 
   Future<void> _openMaterialIssueToJpDialog(JpProfile jp) async {
@@ -1078,7 +1165,7 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
       if (mounted) showDialog(context: context, builder: (ctx) => AlertDialog(title: const Text('PDF Ready'), content: SelectableText('Saved in:\n${file.path}'), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))]));
     }
   }// =====================================================================
-// PART 3 OF 3: RETURNS, CATALOG, STOCK, RECYCLE BIN, DASHBOARD & SETTINGS
+// PART 3 OF 3: RETURNS SCREEN, STOCK ADJUST, RECYCLE BIN & SETTINGS
 // =====================================================================
 
   Widget _buildReturnsAndAlarmsScreen() {
@@ -1128,9 +1215,9 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
                           return Container(
                             margin: const EdgeInsets.only(bottom: 6),
                             decoration: BoxDecoration(
-                              color: isOverdue ? Colors.red.shade50 : (touchedIds.contains(t.id) ? const Color(0xFFFEF3C7) : Colors.white),
+                              color: isOverdue ? Colors.red.shade50 : (touchedId == t.id ? const Color(0xFFFEF3C7) : Colors.white),
                               borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: isOverdue ? Colors.red : (touchedIds.contains(t.id) ? const Color(0xFFF25F22) : Colors.black12), width: isOverdue || touchedIds.contains(t.id) ? 2.0 : 1.0),
+                              border: Border.all(color: isOverdue ? Colors.red : (touchedId == t.id ? const Color(0xFFF25F22) : Colors.black12), width: isOverdue || (touchedId == t.id) ? 2.0 : 1.0),
                             ),
                             child: ListTile(
                               onTap: () => _toggleTouch(t.id),
@@ -1396,6 +1483,10 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
                                     if (item.type == 'ITEM') { deletedItemIds.remove(item.id); catalog.add(CatalogItem.fromMap(item.rawData)); }
                                     if (item.type == 'JP') { deletedJpIds.remove(item.id); jpList.add(JpProfile.fromMap(item.rawData)); }
                                     if (item.type == 'REQUISITION') { deletedReqIds.remove(item.id); requisitions.add(MaterialRequisition.fromMap(item.rawData)); }
+                                    if (item.type == 'TX') {
+                                      deletedTxIds.remove(item.id);
+                                      transactions.add(StoreTx.fromMap(item.rawData));
+                                    }
                                   });
                                   _saveData();
                                   _syncWithCloud(silent: true);
@@ -1509,8 +1600,7 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
   }
 
   void _openChangePinDialog() {
-    final oCtrl = TextEditingController();
-    final nCtrl = TextEditingController();
+    final oCtrl = TextEditingController(), nCtrl = TextEditingController();
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -1532,7 +1622,7 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
                 setState(() => _securityPin = nCtrl.text.trim());
                 _saveData();
                 Navigator.pop(ctx);
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('PIN Changed Successfully!')));
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('PIN Changed!')));
               } else {
                 ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Current PIN ghalat hai!')));
               }
@@ -1547,7 +1637,6 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
   Widget _buildSettingsScreen() {
     final urlCtrl = TextEditingController(text: _firebaseUrl);
     final keyCtrl = TextEditingController(text: _cloudStoreId);
-
     return ListView(
       padding: const EdgeInsets.all(14),
       children: [
@@ -1558,25 +1647,28 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
             IconButton(icon: const Icon(Icons.lock, color: Colors.red), onPressed: () => setState(() { _isSettingsUnlocked = false; _navIndex = 0; })),
           ],
         ),
+        const SizedBox(height: 8),
         TextField(controller: urlCtrl, decoration: const InputDecoration(labelText: 'Firebase URL')),
         const SizedBox(height: 6),
         TextField(controller: keyCtrl, decoration: const InputDecoration(labelText: 'Branch Key')),
         const SizedBox(height: 8),
         ElevatedButton(
+          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0B2545)),
           onPressed: () {
             setState(() { _firebaseUrl = urlCtrl.text.trim(); _cloudStoreId = keyCtrl.text.trim(); });
             _saveData();
             _syncWithCloud(silent: false);
           },
-          child: const Text('Save Firebase'),
+          child: const Text('Save Firebase', style: TextStyle(color: Colors.white)),
         ),
-        const Divider(height: 20),
+        const Divider(height: 24),
         ListTile(
           title: const Text('Master PIN Security', style: TextStyle(fontWeight: FontWeight.bold)),
           subtitle: Text('Current PIN: $_securityPin'),
           trailing: ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0B2545)),
             onPressed: _openChangePinDialog,
-            child: const Text('Change PIN'),
+            child: const Text('Change PIN', style: TextStyle(color: Colors.white)),
           ),
         ),
       ],
