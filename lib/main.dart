@@ -1,5 +1,5 @@
 // =====================================================================
-// PART 1 OF 5: IMPORTS, MODELS, STORAGE, SYNC & PIN AUTH
+// PART 1 OF 6: IMPORTS, MODELS & APP INITIALIZATION
 // =====================================================================
 
 import 'dart:async';
@@ -238,8 +238,9 @@ class MainStoreScreen extends StatefulWidget {
 }
 
 class _MainStoreScreenState extends State<MainStoreScreen> {
-Timer? _autoSyncTimer;
   int _navIndex = 0;
+  Timer? _autoSyncTimer;
+
   List<CatalogItem> catalog = [];
   List<JpProfile> jpList = [];
   List<StoreTx> transactions = [];
@@ -247,6 +248,7 @@ Timer? _autoSyncTimer;
   List<TrashItem> recycleBin = [];
 
   List<String> deletedItemIds = [], deletedJpIds = [], deletedTxIds = [], deletedReqIds = [];
+  List<String> permanentlyDeletedIds = [];
   String? touchedId;
 
   final List<String> commonUoms = ['Pcs', 'Mtr', 'Kg', 'Ltr', 'Box', 'Roll', 'Set', 'Pair', 'Drum', 'Can', 'Pkt', 'Bundle', 'Bag', 'Sheet'];
@@ -258,14 +260,13 @@ Timer? _autoSyncTimer;
   String _securityPin = '1234', _firebaseUrl = '', _cloudStoreId = 'saari_general_store', _lastSyncStatus = 'Not Synced';
   bool _isSyncing = false, _isSettingsUnlocked = false;
 
- @override
+  @override
   void initState() {
     super.initState();
     _loadData().then((_) {
       if (_firebaseUrl.isNotEmpty) {
         _syncWithCloud(silent: true);
       }
-      // Auto Sync Shuru
       _startAutoSync();
     });
   }
@@ -296,7 +297,9 @@ Timer? _autoSyncTimer;
       borderRadius: BorderRadius.circular(8),
       border: Border.all(color: isT ? const Color(0xFFF25F22) : (defaultBorder ?? Colors.black12), width: isT ? 2.2 : 1.0),
     );
-  }
+  }// =====================================================================
+// PART 2 OF 6: STORAGE & AUTHENTICATION
+// =====================================================================
 
   Future<File> _getFile() async {
     final dir = await getApplicationDocumentsDirectory();
@@ -319,6 +322,7 @@ Timer? _autoSyncTimer;
           if (data['deletedJpIds'] != null) deletedJpIds = List<String>.from(data['deletedJpIds']);
           if (data['deletedTxIds'] != null) deletedTxIds = List<String>.from(data['deletedTxIds']);
           if (data['deletedReqIds'] != null) deletedReqIds = List<String>.from(data['deletedReqIds']);
+          if (data['permanentlyDeletedIds'] != null) permanentlyDeletedIds = List<String>.from(data['permanentlyDeletedIds']);
           if (data['securityPin'] != null) _securityPin = data['securityPin'].toString();
           if (data['firebaseUrl'] != null) _firebaseUrl = data['firebaseUrl'].toString();
           if (data['cloudStoreId'] != null) _cloudStoreId = data['cloudStoreId'].toString();
@@ -326,6 +330,7 @@ Timer? _autoSyncTimer;
           jpList.removeWhere((j) => deletedJpIds.contains(j.id));
           transactions.removeWhere((t) => deletedTxIds.contains(t.id));
           requisitions.removeWhere((r) => deletedReqIds.contains(r.id));
+          recycleBin.removeWhere((t) => permanentlyDeletedIds.contains(t.id));
         });
       } else {
         _loadDefaultSeed();
@@ -362,6 +367,7 @@ Timer? _autoSyncTimer;
         'deletedJpIds': deletedJpIds,
         'deletedTxIds': deletedTxIds,
         'deletedReqIds': deletedReqIds,
+        'permanentlyDeletedIds': permanentlyDeletedIds,
         'securityPin': _securityPin,
         'firebaseUrl': _firebaseUrl,
         'cloudStoreId': _cloudStoreId,
@@ -431,108 +437,7 @@ Timer? _autoSyncTimer;
     }
     return null;
   }
-Future<void> _syncWithCloud({bool silent = false}) async {
-    if (_firebaseUrl.trim().isEmpty) {
-      if (!silent && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(backgroundColor: Colors.orange, content: Text('⚠️ Pehle Settings mein Firebase URL daalein!')),
-        );
-      }
-      return;
-    }
-    if (_isSyncing) return;
-    setState(() => _isSyncing = true);
 
-    try {
-      String baseUrl = _firebaseUrl.trim();
-      if (!baseUrl.startsWith('http')) baseUrl = 'https://$baseUrl';
-      if (baseUrl.endsWith('/')) baseUrl = baseUrl.substring(0, baseUrl.length - 1);
-      final syncUri = Uri.parse('$baseUrl/$_cloudStoreId.json');
-      
-      final res = await http.get(syncUri).timeout(const Duration(seconds: 10));
-
-      if (res.statusCode == 200 && res.body != 'null' && res.body.isNotEmpty) {
-        final remote = jsonDecode(res.body);
-        if (remote is Map) {
-          deletedItemIds = {...deletedItemIds, ...List<String>.from(remote['deletedItemIds'] ?? [])}.toList();
-          deletedJpIds = {...deletedJpIds, ...List<String>.from(remote['deletedJpIds'] ?? [])}.toList();
-          deletedTxIds = {...deletedTxIds, ...List<String>.from(remote['deletedTxIds'] ?? [])}.toList();
-          deletedReqIds = {...deletedReqIds, ...List<String>.from(remote['deletedReqIds'] ?? [])}.toList();
-
-          final localCat = {for (var i in catalog) i.id: i}..removeWhere((id, _) => deletedItemIds.contains(id));
-          for (var r in (remote['catalog'] as List? ?? [])) {
-            final item = CatalogItem.fromMap(r);
-            if (!deletedItemIds.contains(item.id)) localCat[item.id] = item;
-          }
-          final localJp = {for (var j in jpList) j.id: j}..removeWhere((id, _) => deletedJpIds.contains(id));
-          for (var r in (remote['jpList'] as List? ?? [])) {
-            final jp = JpProfile.fromMap(r);
-            if (!deletedJpIds.contains(jp.id)) localJp[jp.id] = jp;
-          }
-          final localTx = {for (var t in transactions) t.id: t}..removeWhere((id, _) => deletedTxIds.contains(id));
-          for (var r in (remote['transactions'] as List? ?? [])) {
-            final tx = StoreTx.fromMap(r);
-            if (!deletedTxIds.contains(tx.id)) localTx[tx.id] = tx;
-          }
-          final localReq = {for (var q in requisitions) q.id: q}..removeWhere((id, _) => deletedReqIds.contains(id));
-          for (var r in (remote['requisitions'] as List? ?? [])) {
-            final req = MaterialRequisition.fromMap(r);
-            if (!deletedReqIds.contains(req.id)) localReq[req.id] = req;
-          }
-
-          // RECYCLE BIN CLOUD SYNC & MERGE
-          final allDeletedIds = {...deletedItemIds, ...deletedJpIds, ...deletedTxIds, ...deletedReqIds};
-          final localTrash = {for (var t in recycleBin) t.id: t};
-          for (var r in (remote['recycleBin'] as List? ?? [])) {
-            final trash = TrashItem.fromMap(r);
-            if (allDeletedIds.contains(trash.id)) {
-              localTrash[trash.id] = trash;
-            }
-          }
-          localTrash.removeWhere((id, _) => !allDeletedIds.contains(id));
-
-          if (mounted) {
-            setState(() {
-              catalog = localCat.values.toList();
-              jpList = localJp.values.toList();
-              transactions = localTx.values.toList();
-              requisitions = localReq.values.toList();
-              recycleBin = localTrash.values.toList();
-            });
-          }
-        }
-      }
-
-      // CLOUD PAR RECYCLE BIN BHI BHEJEIN
-      await http.put(syncUri, headers: {'Content-Type': 'application/json'}, body: jsonEncode({
-        'updatedAt': DateTime.now().toIso8601String(),
-        'catalog': catalog.map((x) => x.toMap()).toList(),
-        'jpList': jpList.map((x) => x.toMap()).toList(),
-        'transactions': transactions.map((x) => x.toMap()).toList(),
-        'requisitions': requisitions.map((x) => x.toMap()).toList(),
-        'recycleBin': recycleBin.map((x) => x.toMap()).toList(),
-        'deletedItemIds': deletedItemIds,
-        'deletedJpIds': deletedJpIds,
-        'deletedTxIds': deletedTxIds,
-        'deletedReqIds': deletedReqIds,
-      })).timeout(const Duration(seconds: 10));
-
-      await _saveData();
-      final syncTime = DateFormat('hh:mm a').format(DateTime.now());
-      if (mounted) {
-        setState(() => _lastSyncStatus = 'Synced at $syncTime');
-        if (!silent) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(backgroundColor: Colors.green, content: Text('✅ Synced Successfully! ($syncTime)')),
-          );
-        }
-      }
-    } catch (_) {
-      if (mounted) setState(() => _lastSyncStatus = 'Sync Error');
-    } finally {
-      if (mounted) setState(() => _isSyncing = false);
-    }
-  }
   Future<bool> _authenticateAction(String title) async {
     final pinResult = await showDialog<bool>(
       context: context,
@@ -565,7 +470,161 @@ Future<void> _syncWithCloud({bool silent = false}) async {
     );
     return pinResult ?? false;
   }// =====================================================================
-// PART 2 OF 5: REQUISITIONS MANAGEMENT & RECEIVE GOODS
+// PART 3 OF 6: CLOUD SYNC & CONFLICT RESOLUTION
+// =====================================================================
+
+  Future<void> _syncWithCloud({bool silent = false}) async {
+    if (_firebaseUrl.trim().isEmpty) {
+      if (!silent && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(backgroundColor: Colors.orange, content: Text('⚠️ Pehle Settings mein Firebase URL daalein!')),
+        );
+      }
+      return;
+    }
+    if (_isSyncing) return;
+    setState(() => _isSyncing = true);
+
+    try {
+      String baseUrl = _firebaseUrl.trim();
+      if (!baseUrl.startsWith('http')) baseUrl = 'https://$baseUrl';
+      if (baseUrl.endsWith('/')) baseUrl = baseUrl.substring(0, baseUrl.length - 1);
+      final syncUri = Uri.parse('$baseUrl/$_cloudStoreId.json');
+      
+      final res = await http.get(syncUri).timeout(const Duration(seconds: 10));
+
+      if (res.statusCode == 200 && res.body != 'null' && res.body.isNotEmpty) {
+        final remote = jsonDecode(res.body);
+        if (remote is Map) {
+          permanentlyDeletedIds = {...permanentlyDeletedIds, ...List<String>.from(remote['permanentlyDeletedIds'] ?? [])}.toList();
+          deletedItemIds = {...deletedItemIds, ...List<String>.from(remote['deletedItemIds'] ?? [])}..removeWhere((id) => permanentlyDeletedIds.contains(id));
+          deletedJpIds = {...deletedJpIds, ...List<String>.from(remote['deletedJpIds'] ?? [])}..removeWhere((id) => permanentlyDeletedIds.contains(id));
+          deletedTxIds = {...deletedTxIds, ...List<String>.from(remote['deletedTxIds'] ?? [])}..removeWhere((id) => permanentlyDeletedIds.contains(id));
+          deletedReqIds = {...deletedReqIds, ...List<String>.from(remote['deletedReqIds'] ?? [])}..removeWhere((id) => permanentlyDeletedIds.contains(id));
+
+          final localCat = {for (var i in catalog) i.id: i}..removeWhere((id, _) => deletedItemIds.contains(id) || permanentlyDeletedIds.contains(id));
+          for (var r in (remote['catalog'] as List? ?? [])) {
+            final remItem = CatalogItem.fromMap(r);
+            if (!deletedItemIds.contains(remItem.id) && !permanentlyDeletedIds.contains(remItem.id)) {
+              if (localCat.containsKey(remItem.id)) {
+                final locTime = DateTime.tryParse(localCat[remItem.id]!.updatedAt) ?? DateTime(1970);
+                final remTime = DateTime.tryParse(remItem.updatedAt) ?? DateTime(1970);
+                if (remTime.isAfter(locTime)) localCat[remItem.id] = remItem;
+              } else {
+                localCat[remItem.id] = remItem;
+              }
+            }
+          }
+
+          final localJp = {for (var j in jpList) j.id: j}..removeWhere((id, _) => deletedJpIds.contains(id) || permanentlyDeletedIds.contains(id));
+          for (var r in (remote['jpList'] as List? ?? [])) {
+            final remJp = JpProfile.fromMap(r);
+            if (!deletedJpIds.contains(remJp.id) && !permanentlyDeletedIds.contains(remJp.id)) {
+              if (localJp.containsKey(remJp.id)) {
+                final locTime = DateTime.tryParse(localJp[remJp.id]!.updatedAt) ?? DateTime(1970);
+                final remTime = DateTime.tryParse(remJp.updatedAt) ?? DateTime(1970);
+                if (remTime.isAfter(locTime)) localJp[remJp.id] = remJp;
+              } else {
+                localJp[remJp.id] = remJp;
+              }
+            }
+          }
+
+          final localTx = {for (var t in transactions) t.id: t}..removeWhere((id, _) => deletedTxIds.contains(id) || permanentlyDeletedIds.contains(id));
+          for (var r in (remote['transactions'] as List? ?? [])) {
+            final remTx = StoreTx.fromMap(r);
+            if (!deletedTxIds.contains(remTx.id) && !permanentlyDeletedIds.contains(remTx.id)) {
+              if (localTx.containsKey(remTx.id)) {
+                final locTx = localTx[remTx.id]!;
+                final locTime = DateTime.tryParse(locTx.updatedAt) ?? DateTime(1970);
+                final remTime = DateTime.tryParse(remTx.updatedAt) ?? DateTime(1970);
+                if (remTime.isAfter(locTime)) {
+                  localTx[remTx.id] = remTx;
+                } else if (locTx.isReturned) {
+                  localTx[remTx.id]!.isReturned = true;
+                }
+              } else {
+                localTx[remTx.id] = remTx;
+              }
+            }
+          }
+
+          final localReq = {for (var q in requisitions) q.id: q}..removeWhere((id, _) => deletedReqIds.contains(id) || permanentlyDeletedIds.contains(id));
+          for (var r in (remote['requisitions'] as List? ?? [])) {
+            final remReq = MaterialRequisition.fromMap(r);
+            if (!deletedReqIds.contains(remReq.id) && !permanentlyDeletedIds.contains(remReq.id)) {
+              if (localReq.containsKey(remReq.id)) {
+                final locTime = DateTime.tryParse(localReq[remReq.id]!.updatedAt) ?? DateTime(1970);
+                final remTime = DateTime.tryParse(remReq.updatedAt) ?? DateTime(1970);
+                if (remTime.isAfter(locTime)) localReq[remReq.id] = remReq;
+              } else {
+                localReq[remReq.id] = remReq;
+              }
+            }
+          }
+
+          for (var k in localCat.keys) deletedItemIds.remove(k);
+          for (var k in localJp.keys) deletedJpIds.remove(k);
+          for (var k in localTx.keys) deletedTxIds.remove(k);
+          for (var k in localReq.keys) deletedReqIds.remove(k);
+
+          final localTrash = {for (var t in recycleBin) t.id: t};
+          for (var r in (remote['recycleBin'] as List? ?? [])) {
+            final trash = TrashItem.fromMap(r);
+            if (!permanentlyDeletedIds.contains(trash.id)) {
+              localTrash[trash.id] = trash;
+            }
+          }
+          localTrash.removeWhere((id, _) =>
+              localCat.containsKey(id) ||
+              localJp.containsKey(id) ||
+              localTx.containsKey(id) ||
+              localReq.containsKey(id) ||
+              permanentlyDeletedIds.contains(id));
+
+          if (mounted) {
+            setState(() {
+              catalog = localCat.values.toList();
+              jpList = localJp.values.toList();
+              transactions = localTx.values.toList();
+              requisitions = localReq.values.toList();
+              recycleBin = localTrash.values.toList();
+            });
+          }
+        }
+      }
+
+      await http.put(syncUri, headers: {'Content-Type': 'application/json'}, body: jsonEncode({
+        'updatedAt': DateTime.now().toIso8601String(),
+        'catalog': catalog.map((x) => x.toMap()).toList(),
+        'jpList': jpList.map((x) => x.toMap()).toList(),
+        'transactions': transactions.map((x) => x.toMap()).toList(),
+        'requisitions': requisitions.map((x) => x.toMap()).toList(),
+        'recycleBin': recycleBin.map((x) => x.toMap()).toList(),
+        'deletedItemIds': deletedItemIds,
+        'deletedJpIds': deletedJpIds,
+        'deletedTxIds': deletedTxIds,
+        'deletedReqIds': deletedReqIds,
+        'permanentlyDeletedIds': permanentlyDeletedIds,
+      })).timeout(const Duration(seconds: 10));
+
+      await _saveData();
+      final syncTime = DateFormat('hh:mm a').format(DateTime.now());
+      if (mounted) {
+        setState(() => _lastSyncStatus = 'Synced at $syncTime');
+        if (!silent) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(backgroundColor: Colors.green, content: Text('✅ Synced Successfully! ($syncTime)')),
+          );
+        }
+      }
+    } catch (_) {
+      if (mounted) setState(() => _lastSyncStatus = 'Sync Error');
+    } finally {
+      if (mounted) setState(() => _isSyncing = false);
+    }
+  }// =====================================================================
+// PART 4 OF 6: REQUISITIONS MANAGEMENT
 // =====================================================================
 
   Widget _buildRequisitionsScreen() {
@@ -882,7 +941,7 @@ Future<void> _syncWithCloud({bool silent = false}) async {
       if (mounted) showDialog(context: context, builder: (ctx) => AlertDialog(title: const Text('PDF Saved'), content: SelectableText('Saved in:\n${file.path}'), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))]));
     }
   }// =====================================================================
-// PART 3 OF 5: JP PROFILES & DETAIL SCREEN (DATE-WISE + MONTHLY TOTAL)
+// PART 5 OF 6: JP PROFILES & MATERIAL ISSUANCE
 // =====================================================================
 
   Widget _buildJpScreen() {
@@ -1259,9 +1318,7 @@ Future<void> _syncWithCloud({bool silent = false}) async {
         ),
       ),
     );
-  }// =====================================================================
-// PART 4 OF 5: MATERIAL ISSUE (CUSTOM DATE PICKER), RETURNS & LEDGER
-// =====================================================================
+  }
 
   void _editStoreTransaction(StoreTx t, VoidCallback onDone) async {
     if (!await _authenticateAction('Edit Issued Record')) return;
@@ -1566,7 +1623,7 @@ Future<void> _syncWithCloud({bool silent = false}) async {
       if (mounted) showDialog(context: context, builder: (ctx) => AlertDialog(title: const Text('PDF Ready'), content: SelectableText('Saved in:\n${file.path}'), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))]));
     }
   }// =====================================================================
-// PART 5 OF 5: RETURNS, CATALOG, STOCK ADJUST, RECYCLE BIN & SETTINGS
+// PART 6 OF 6: RETURNS, CATALOG, RECYCLE BIN, DASHBOARD & MAIN BUILD
 // =====================================================================
 
   Widget _buildReturnsAndAlarmsScreen() {
@@ -1688,6 +1745,7 @@ Future<void> _syncWithCloud({bool silent = false}) async {
     final bool isEdit = existingItem != null;
     if (isEdit && !await _authenticateAction('Edit Catalog Item')) return;
     final nameCtrl = TextEditingController(text: isEdit ? existingItem.name : '');
+    final openingStockCtrl = TextEditingController(text: '0');
     String cat = isEdit ? existingItem.category : commonCategories.first;
     String uom = isEdit ? existingItem.uom : 'Pcs';
     bool ret = isEdit ? existingItem.isReturnableDefault : false;
@@ -1698,16 +1756,22 @@ Future<void> _syncWithCloud({bool silent = false}) async {
       builder: (ctx) => StatefulBuilder(
         builder: (context, setDState) => AlertDialog(
           title: Text(isEdit ? 'Edit Item' : 'New Catalog Item'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Item Name *')),
-              const SizedBox(height: 6),
-              DropdownButtonFormField<String>(value: commonCategories.contains(cat) ? cat : commonCategories.first, items: commonCategories.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(), onChanged: (v) => setDState(() => cat = v!)),
-              const SizedBox(height: 6),
-              DropdownButtonFormField<String>(value: commonUoms.contains(uom) ? uom : commonUoms.first, items: commonUoms.map((u) => DropdownMenuItem(value: u, child: Text(u))).toList(), onChanged: (v) => setDState(() => uom = v!)),
-              CheckboxListTile(title: const Text('Returnable Default', style: TextStyle(fontSize: 12)), value: ret, onChanged: (v) => setDState(() => ret = v ?? false)),
-            ],
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Item Name *')),
+                const SizedBox(height: 6),
+                DropdownButtonFormField<String>(value: commonCategories.contains(cat) ? cat : commonCategories.first, items: commonCategories.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(), onChanged: (v) => setDState(() => cat = v!)),
+                const SizedBox(height: 6),
+                DropdownButtonFormField<String>(value: commonUoms.contains(uom) ? uom : commonUoms.first, items: commonUoms.map((u) => DropdownMenuItem(value: u, child: Text(u))).toList(), onChanged: (v) => setDState(() => uom = v!)),
+                if (!isEdit) ...[
+                  const SizedBox(height: 6),
+                  TextField(controller: openingStockCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Opening Stock (Shuruati Tadaad)')),
+                ],
+                CheckboxListTile(title: const Text('Returnable Default', style: TextStyle(fontSize: 12)), value: ret, onChanged: (v) => setDState(() => ret = v ?? false)),
+              ],
+            ),
           ),
           actions: [
             TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
@@ -1716,8 +1780,31 @@ Future<void> _syncWithCloud({bool silent = false}) async {
                 final n = nameCtrl.text.trim();
                 if (n.isEmpty) return;
                 setState(() {
-                  if (isEdit) { existingItem.name = n; existingItem.category = cat; existingItem.uom = uom; existingItem.isReturnableDefault = ret; existingItem.updatedAt = DateTime.now().toIso8601String(); }
-                  else { catalog.add(CatalogItem(id: const Uuid().v4(), name: n, category: cat, uom: uom, isReturnableDefault: ret, updatedAt: DateTime.now().toIso8601String())); }
+                  if (isEdit) {
+                    existingItem.name = n;
+                    existingItem.category = cat;
+                    existingItem.uom = uom;
+                    existingItem.isReturnableDefault = ret;
+                    existingItem.updatedAt = DateTime.now().toIso8601String();
+                  } else {
+                    final newId = const Uuid().v4();
+                    catalog.add(CatalogItem(id: newId, name: n, category: cat, uom: uom, isReturnableDefault: ret, updatedAt: DateTime.now().toIso8601String()));
+                    double initStock = double.tryParse(openingStockCtrl.text.trim()) ?? 0;
+                    if (initStock > 0) {
+                      transactions.add(StoreTx(
+                        id: const Uuid().v4(),
+                        type: 'RECEIVE',
+                        itemId: newId,
+                        itemName: n,
+                        category: cat,
+                        uom: uom,
+                        qty: initStock,
+                        date: DateFormat('yyyy-MM-dd').format(DateTime.now()),
+                        remarks: 'Opening Stock',
+                        updatedAt: DateTime.now().toIso8601String(),
+                      ));
+                    }
+                  }
                 });
                 _saveData();
                 _syncWithCloud(silent: true);
@@ -1806,29 +1893,33 @@ Future<void> _syncWithCloud({bool silent = false}) async {
           ),
         ),
         Expanded(
-          child: ListView.builder(
-            itemCount: catalog.length,
-            itemBuilder: (ctx, idx) {
-              final item = catalog[idx];
-              final stock = _getItemCurrentStock(item.id);
-              return Container(
-                margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: _cardTouchStyle(item.id),
-                child: ListTile(
-                  onTap: () => _toggleTouch(item.id),
-                  title: Text(item.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                  subtitle: Text(item.category),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text('$stock ${item.uom}', style: TextStyle(fontWeight: FontWeight.bold, color: stock > 0 ? Colors.green : Colors.red)),
-                      IconButton(icon: const Icon(Icons.tune, size: 18), onPressed: () => _openStockAdjustDialog(item)),
-                    ],
-                  ),
+          child: catalog.isEmpty
+              ? const Center(child: Text('No Items in Stock.'))
+              : ListView.builder(
+                  itemCount: catalog.length,
+                  itemBuilder: (ctx, idx) {
+                    final item = catalog[idx];
+                    final stock = _getItemCurrentStock(item.id);
+                    return Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: _cardTouchStyle(item.id),
+                      child: ListTile(
+                        onTap: () => _toggleTouch(item.id),
+                        title: Text(item.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                        subtitle: Text('${item.category} | Balance: $stock ${item.uom}'),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text('$stock ${item.uom}', style: TextStyle(fontWeight: FontWeight.bold, color: stock > 0 ? Colors.green : Colors.red)),
+                            IconButton(icon: const Icon(Icons.tune, size: 18, color: Colors.teal), tooltip: 'Adjust Stock', onPressed: () => _openStockAdjustDialog(item)),
+                            IconButton(icon: const Icon(Icons.edit, size: 18, color: Colors.blue), tooltip: 'Edit Item', onPressed: () => _openCatalogItemDialog(existingItem: item)),
+                            IconButton(icon: const Icon(Icons.delete, size: 18, color: Colors.red), tooltip: 'Delete Item', onPressed: () => _deleteCatalogItem(item)),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
                 ),
-              );
-            },
-          ),
         ),
       ],
     );
@@ -1854,7 +1945,8 @@ Future<void> _syncWithCloud({bool silent = false}) async {
       if (mounted) showDialog(context: context, builder: (ctx) => AlertDialog(title: const Text('PDF Saved'), content: SelectableText('Saved in:\n${file.path}'), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))]));
     }
   }
-void _openRecycleBinScreen() {
+
+  void _openRecycleBinScreen() {
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -1880,12 +1972,33 @@ void _openRecycleBinScreen() {
                                 onPressed: () {
                                   setState(() {
                                     recycleBin.removeWhere((t) => t.id == item.id);
-                                    if (item.type == 'ITEM') { deletedItemIds.remove(item.id); catalog.add(CatalogItem.fromMap(item.rawData)); }
-                                    if (item.type == 'JP') { deletedJpIds.remove(item.id); jpList.add(JpProfile.fromMap(item.rawData)); }
-                                    if (item.type == 'REQUISITION') { deletedReqIds.remove(item.id); requisitions.add(MaterialRequisition.fromMap(item.rawData)); }
+                                    if (item.type == 'ITEM') {
+                                      deletedItemIds.remove(item.id);
+                                      final restored = CatalogItem.fromMap(item.rawData);
+                                      restored.updatedAt = DateTime.now().toIso8601String();
+                                      catalog.removeWhere((x) => x.id == restored.id);
+                                      catalog.add(restored);
+                                    }
+                                    if (item.type == 'JP') {
+                                      deletedJpIds.remove(item.id);
+                                      final restored = JpProfile.fromMap(item.rawData);
+                                      restored.updatedAt = DateTime.now().toIso8601String();
+                                      jpList.removeWhere((x) => x.id == restored.id);
+                                      jpList.add(restored);
+                                    }
+                                    if (item.type == 'REQUISITION') {
+                                      deletedReqIds.remove(item.id);
+                                      final restored = MaterialRequisition.fromMap(item.rawData);
+                                      restored.updatedAt = DateTime.now().toIso8601String();
+                                      requisitions.removeWhere((x) => x.id == restored.id);
+                                      requisitions.add(restored);
+                                    }
                                     if (item.type == 'TX') {
                                       deletedTxIds.remove(item.id);
-                                      transactions.add(StoreTx.fromMap(item.rawData));
+                                      final restored = StoreTx.fromMap(item.rawData);
+                                      restored.updatedAt = DateTime.now().toIso8601String();
+                                      transactions.removeWhere((x) => x.id == restored.id);
+                                      transactions.add(restored);
                                     }
                                   });
                                   _saveData();
@@ -1899,6 +2012,7 @@ void _openRecycleBinScreen() {
                                 onPressed: () {
                                   setState(() {
                                     recycleBin.removeWhere((t) => t.id == item.id);
+                                    permanentlyDeletedIds.add(item.id);
                                   });
                                   _saveData();
                                   _syncWithCloud(silent: true);
@@ -1916,13 +2030,35 @@ void _openRecycleBinScreen() {
       ),
     );
   }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         backgroundColor: const Color(0xFF0B2545),
         foregroundColor: Colors.white,
-        title: const Text('SAARI GENERAL STORE', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+        title: Row(
+          children: [
+            const Text('SAARI STORE', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: _firebaseUrl.isNotEmpty ? Colors.green.withOpacity(0.2) : Colors.red.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: _firebaseUrl.isNotEmpty ? Colors.greenAccent : Colors.redAccent, width: 0.8),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircleAvatar(radius: 3, backgroundColor: _firebaseUrl.isNotEmpty ? Colors.greenAccent : Colors.redAccent),
+                  const SizedBox(width: 4),
+                  Text(_firebaseUrl.isNotEmpty ? 'Auto Live' : 'Offline', style: const TextStyle(fontSize: 9, color: Colors.white)),
+                ],
+              ),
+            ),
+          ],
+        ),
         actions: [
           IconButton(icon: const Icon(Icons.restore_from_trash), tooltip: 'Recycle Bin', onPressed: _openRecycleBinScreen),
           IconButton(icon: const Icon(Icons.cloud_sync), tooltip: 'Sync Cloud', onPressed: () => _syncWithCloud(silent: false)),
@@ -2057,8 +2193,12 @@ void _openRecycleBinScreen() {
         ElevatedButton(
           style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0B2545)),
           onPressed: () {
-            setState(() { _firebaseUrl = urlCtrl.text.trim(); _cloudStoreId = keyCtrl.text.trim(); });
+            setState(() { 
+              _firebaseUrl = urlCtrl.text.trim(); 
+              _cloudStoreId = keyCtrl.text.trim(); 
+            });
             _saveData();
+            _startAutoSync();
             _syncWithCloud(silent: false);
           },
           child: const Text('Save Firebase', style: TextStyle(color: Colors.white)),
