@@ -1854,8 +1854,7 @@ Future<void> _syncWithCloud({bool silent = false}) async {
       if (mounted) showDialog(context: context, builder: (ctx) => AlertDialog(title: const Text('PDF Saved'), content: SelectableText('Saved in:\n${file.path}'), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))]));
     }
   }
-
-  void _openRecycleBinScreen() {
+void _openRecycleBinScreen() {
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -1898,8 +1897,11 @@ Future<void> _syncWithCloud({bool silent = false}) async {
                               IconButton(
                                 icon: const Icon(Icons.delete_forever, color: Colors.red),
                                 onPressed: () {
-                                  setState(() => recycleBin.removeWhere((t) => t.id == item.id));
+                                  setState(() {
+                                    recycleBin.removeWhere((t) => t.id == item.id);
+                                  });
                                   _saveData();
+                                  _syncWithCloud(silent: true);
                                   setTrashState(() {});
                                 },
                               ),
@@ -1914,7 +1916,6 @@ Future<void> _syncWithCloud({bool silent = false}) async {
       ),
     );
   }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
