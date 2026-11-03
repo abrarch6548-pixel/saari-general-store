@@ -237,6 +237,7 @@ class MainStoreScreen extends StatefulWidget {
 }
 
 class _MainStoreScreenState extends State<MainStoreScreen> {
+Timer? _autoSyncTimer;
   int _navIndex = 0;
   List<CatalogItem> catalog = [];
   List<JpProfile> jpList = [];
@@ -256,11 +257,30 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
   String _securityPin = '1234', _firebaseUrl = '', _cloudStoreId = 'saari_general_store', _lastSyncStatus = 'Not Synced';
   bool _isSyncing = false, _isSettingsUnlocked = false;
 
-  @override
+ @override
   void initState() {
     super.initState();
     _loadData().then((_) {
-      if (_firebaseUrl.isNotEmpty) _syncWithCloud(silent: true);
+      if (_firebaseUrl.isNotEmpty) {
+        _syncWithCloud(silent: true);
+      }
+      // Auto Sync Shuru
+      _startAutoSync();
+    });
+  }
+
+  @override
+  void dispose() {
+    _autoSyncTimer?.cancel();
+    super.dispose();
+  }
+
+  void _startAutoSync() {
+    _autoSyncTimer?.cancel();
+    _autoSyncTimer = Timer.periodic(const Duration(seconds: 12), (timer) {
+      if (_firebaseUrl.trim().isNotEmpty && mounted && !_isSyncing) {
+        _syncWithCloud(silent: true);
+      }
     });
   }
 
