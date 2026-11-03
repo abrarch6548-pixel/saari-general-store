@@ -27,6 +27,8 @@ jobs:
       - name: Generate Android Files
         run: |
           flutter create . --project-name saari_store --platforms=android --org com.saari.store
+          sed -i 's|<application|<uses-permission android:name="android.permission.INTERNET"/>\n    <application|' android/app/src/main/AndroidManifest.xml
+          flutter create . --project-name saari_store --platforms=android --org com.saari.store
 
       - name: Install Packages
         run: flutter pub get
