@@ -1,10 +1,9 @@
 // =====================================================================
-// PART 1 OF 3: IMPORTS, DATA MODELS & LOCAL STORAGE ENGINE
+// PART 1 OF 3: IMPORTS, DATA MODELS & STORAGE ENGINE (CLEAN & ERROR-FREE)
 // =====================================================================
 
 import 'dart:convert';
 import 'dart:io';
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -223,15 +222,61 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
   }
 
   Future<Directory?> _promptFolderSelection() async {
-    try {
-      String? path = await FilePicker.platform.getDirectoryPath(dialogTitle: 'Select Folder');
-      if (path != null && path.isNotEmpty) {
-        final d = Directory(path);
-        if (!await d.exists()) await d.create(recursive: true);
-        return d;
-      }
-    } catch (_) {}
-    return await getApplicationDocumentsDirectory();
+    final docsDir = await getApplicationDocumentsDirectory();
+    Directory? dlDir;
+    try { dlDir = await getDownloadsDirectory(); } catch (_) {}
+    if (dlDir == null && Platform.isAndroid) {
+      final androidDl = Directory('/storage/emulated/0/Download');
+      if (await androidDl.exists()) dlDir = androidDl;
+    }
+
+    String selectedPath = (dlDir ?? docsDir).path;
+    final pathCtrl = TextEditingController(text: selectedPath);
+
+    if (!mounted) return dlDir ?? docsDir;
+    final chosen = await showDialog<String>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDState) => AlertDialog(
+          title: const Text('Save File Location', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (dlDir != null)
+                ListTile(
+                  leading: const Icon(Icons.download, color: Colors.blue),
+                  title: const Text('Downloads Folder', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                  subtitle: Text(dlDir.path, style: const TextStyle(fontSize: 10)),
+                  onTap: () => Navigator.pop(ctx, dlDir!.path),
+                ),
+              ListTile(
+                leading: const Icon(Icons.folder, color: Colors.amber),
+                title: const Text('Documents Folder', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                subtitle: Text(docsDir.path, style: const TextStyle(fontSize: 10)),
+                onTap: () => Navigator.pop(ctx, docsDir.path),
+              ),
+              const Divider(),
+              TextField(
+                controller: pathCtrl,
+                style: const TextStyle(fontSize: 11),
+                decoration: const InputDecoration(labelText: 'Custom Folder Path'),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, null), child: const Text('Cancel')),
+            ElevatedButton(onPressed: () => Navigator.pop(ctx, pathCtrl.text.trim()), child: const Text('Save Here')),
+          ],
+        ),
+      ),
+    );
+
+    if (chosen != null && chosen.isNotEmpty) {
+      final d = Directory(chosen);
+      if (!await d.exists()) await d.create(recursive: true);
+      return d;
+    }
+    return null;
   }
 
   Future<void> _syncWithCloud({bool silent = false}) async {
@@ -1031,8 +1076,7 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
       final file = File('${dir.path}/Ledger_${jp.name}_$nowStr.html');
       await file.writeAsString(html.toString());
       if (mounted) showDialog(context: context, builder: (ctx) => AlertDialog(title: const Text('PDF Ready'), content: SelectableText('Saved in:\n${file.path}'), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))]));
-    }
-  }// =====================================================================
+    }// =====================================================================
 // PART 3 OF 3: RETURNS SCREEN, STOCK ADJUST, RECYCLE BIN & SETTINGS
 // =====================================================================
 
@@ -1464,8 +1508,7 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
   }
 
   void _openChangePinDialog() {
-    final oCtrl = TextEditingController();
-    final nCtrl = TextEditingController();
+    final oCtrl = TextEditingController(), nCtrl = TextEditingController();
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -1487,7 +1530,7 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
                 setState(() => _securityPin = nCtrl.text.trim());
                 _saveData();
                 Navigator.pop(ctx);
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('PIN Changed Successfully!')));
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('PIN Changed!')));
               } else {
                 ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Current PIN ghalat hai!')));
               }
@@ -1502,39 +1545,42 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
   Widget _buildSettingsScreen() {
     final urlCtrl = TextEditingController(text: _firebaseUrl);
     final keyCtrl = TextEditingController(text: _cloudStoreId);
-
     return ListView(
       padding: const EdgeInsets.all(14),
       children: [
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            const Text('Settings & Configuration', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            const Text('Settings & Database', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
             IconButton(icon: const Icon(Icons.lock, color: Colors.red), onPressed: () => setState(() { _isSettingsUnlocked = false; _navIndex = 0; })),
           ],
         ),
+        const SizedBox(height: 8),
         TextField(controller: urlCtrl, decoration: const InputDecoration(labelText: 'Firebase URL')),
         const SizedBox(height: 6),
         TextField(controller: keyCtrl, decoration: const InputDecoration(labelText: 'Branch Key')),
         const SizedBox(height: 8),
         ElevatedButton(
+          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0B2545)),
           onPressed: () {
             setState(() { _firebaseUrl = urlCtrl.text.trim(); _cloudStoreId = keyCtrl.text.trim(); });
             _saveData();
             _syncWithCloud(silent: false);
           },
-          child: const Text('Save Firebase'),
+          child: const Text('Save Firebase', style: TextStyle(color: Colors.white)),
         ),
-        const Divider(height: 20),
+        const Divider(height: 24),
         ListTile(
           title: const Text('Master PIN Security', style: TextStyle(fontWeight: FontWeight.bold)),
           subtitle: Text('Current PIN: $_securityPin'),
           trailing: ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0B2545)),
             onPressed: _openChangePinDialog,
-            child: const Text('Change PIN'),
+            child: const Text('Change PIN', style: TextStyle(color: Colors.white)),
           ),
         ),
       ],
     );
   }
 }
+  }
