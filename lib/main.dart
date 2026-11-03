@@ -469,8 +469,8 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
       },
     );
     return pinResult ?? false;
-  }// =====================================================================
-// PART 3 OF 6: CLOUD SYNC & CONFLICT RESOLUTION
+  }// // =====================================================================
+// PART 3 OF 6: CLOUD SYNC & CONFLICT RESOLUTION (FIXED)
 // =====================================================================
 
   Future<void> _syncWithCloud({bool silent = false}) async {
@@ -497,10 +497,19 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
         final remote = jsonDecode(res.body);
         if (remote is Map) {
           permanentlyDeletedIds = {...permanentlyDeletedIds, ...List<String>.from(remote['permanentlyDeletedIds'] ?? [])}.toList();
-          deletedItemIds = {...deletedItemIds, ...List<String>.from(remote['deletedItemIds'] ?? [])}..removeWhere((id) => permanentlyDeletedIds.contains(id));
-          deletedJpIds = {...deletedJpIds, ...List<String>.from(remote['deletedJpIds'] ?? [])}..removeWhere((id) => permanentlyDeletedIds.contains(id));
-          deletedTxIds = {...deletedTxIds, ...List<String>.from(remote['deletedTxIds'] ?? [])}..removeWhere((id) => permanentlyDeletedIds.contains(id));
-          deletedReqIds = {...deletedReqIds, ...List<String>.from(remote['deletedReqIds'] ?? [])}..removeWhere((id) => permanentlyDeletedIds.contains(id));
+          
+          deletedItemIds = {...deletedItemIds, ...List<String>.from(remote['deletedItemIds'] ?? [])}
+              .where((id) => !permanentlyDeletedIds.contains(id))
+              .toList();
+          deletedJpIds = {...deletedJpIds, ...List<String>.from(remote['deletedJpIds'] ?? [])}
+              .where((id) => !permanentlyDeletedIds.contains(id))
+              .toList();
+          deletedTxIds = {...deletedTxIds, ...List<String>.from(remote['deletedTxIds'] ?? [])}
+              .where((id) => !permanentlyDeletedIds.contains(id))
+              .toList();
+          deletedReqIds = {...deletedReqIds, ...List<String>.from(remote['deletedReqIds'] ?? [])}
+              .where((id) => !permanentlyDeletedIds.contains(id))
+              .toList();
 
           final localCat = {for (var i in catalog) i.id: i}..removeWhere((id, _) => deletedItemIds.contains(id) || permanentlyDeletedIds.contains(id));
           for (var r in (remote['catalog'] as List? ?? [])) {
@@ -623,7 +632,7 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
     } finally {
       if (mounted) setState(() => _isSyncing = false);
     }
-  }// =====================================================================
+  } =====================================================================
 // PART 4 OF 6: REQUISITIONS MANAGEMENT
 // =====================================================================
 
