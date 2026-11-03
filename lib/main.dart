@@ -2,6 +2,7 @@
 // PART 1 OF 5: IMPORTS, MODELS, STORAGE, SYNC & PIN AUTH
 // =====================================================================
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
