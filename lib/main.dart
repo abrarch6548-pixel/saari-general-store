@@ -431,15 +431,24 @@ Timer? _autoSyncTimer;
     }
     return null;
   }
-
-  Future<void> _syncWithCloud({bool silent = false}) async {
-    if (_isSyncing || _firebaseUrl.trim().isEmpty) return;
+Future<void> _syncWithCloud({bool silent = false}) async {
+    if (_firebaseUrl.trim().isEmpty) {
+      if (!silent && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(backgroundColor: Colors.orange, content: Text('⚠️ Pehle Settings mein Firebase URL daalein!')),
+        );
+      }
+      return;
+    }
+    if (_isSyncing) return;
     setState(() => _isSyncing = true);
+
     try {
       String baseUrl = _firebaseUrl.trim();
       if (!baseUrl.startsWith('http')) baseUrl = 'https://$baseUrl';
       if (baseUrl.endsWith('/')) baseUrl = baseUrl.substring(0, baseUrl.length - 1);
       final syncUri = Uri.parse('$baseUrl/$_cloudStoreId.json');
+      
       final res = await http.get(syncUri).timeout(const Duration(seconds: 10));
 
       if (res.statusCode == 200 && res.body != 'null' && res.body.isNotEmpty) {
@@ -471,23 +480,37 @@ Timer? _autoSyncTimer;
             if (!deletedReqIds.contains(req.id)) localReq[req.id] = req;
           }
 
+          // RECYCLE BIN CLOUD SYNC & MERGE
+          final allDeletedIds = {...deletedItemIds, ...deletedJpIds, ...deletedTxIds, ...deletedReqIds};
+          final localTrash = {for (var t in recycleBin) t.id: t};
+          for (var r in (remote['recycleBin'] as List? ?? [])) {
+            final trash = TrashItem.fromMap(r);
+            if (allDeletedIds.contains(trash.id)) {
+              localTrash[trash.id] = trash;
+            }
+          }
+          localTrash.removeWhere((id, _) => !allDeletedIds.contains(id));
+
           if (mounted) {
             setState(() {
               catalog = localCat.values.toList();
               jpList = localJp.values.toList();
               transactions = localTx.values.toList();
               requisitions = localReq.values.toList();
+              recycleBin = localTrash.values.toList();
             });
           }
         }
       }
 
+      // CLOUD PAR RECYCLE BIN BHI BHEJEIN
       await http.put(syncUri, headers: {'Content-Type': 'application/json'}, body: jsonEncode({
         'updatedAt': DateTime.now().toIso8601String(),
         'catalog': catalog.map((x) => x.toMap()).toList(),
         'jpList': jpList.map((x) => x.toMap()).toList(),
         'transactions': transactions.map((x) => x.toMap()).toList(),
         'requisitions': requisitions.map((x) => x.toMap()).toList(),
+        'recycleBin': recycleBin.map((x) => x.toMap()).toList(),
         'deletedItemIds': deletedItemIds,
         'deletedJpIds': deletedJpIds,
         'deletedTxIds': deletedTxIds,
@@ -495,14 +518,21 @@ Timer? _autoSyncTimer;
       })).timeout(const Duration(seconds: 10));
 
       await _saveData();
-      if (mounted) setState(() => _lastSyncStatus = 'Synced at ${DateFormat('hh:mm a').format(DateTime.now())}');
+      final syncTime = DateFormat('hh:mm a').format(DateTime.now());
+      if (mounted) {
+        setState(() => _lastSyncStatus = 'Synced at $syncTime');
+        if (!silent) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(backgroundColor: Colors.green, content: Text('✅ Synced Successfully! ($syncTime)')),
+          );
+        }
+      }
     } catch (_) {
       if (mounted) setState(() => _lastSyncStatus = 'Sync Error');
     } finally {
       if (mounted) setState(() => _isSyncing = false);
     }
   }
-
   Future<bool> _authenticateAction(String title) async {
     final pinResult = await showDialog<bool>(
       context: context,
