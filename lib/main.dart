@@ -1,9 +1,10 @@
 // =====================================================================
-// PART 1 OF 5: IMPORTS, APP SETUP & DATA MODELS (WITH RECYCLE BIN)
+// PART 1 OF 5: IMPORTS, APP SETUP & DATA MODELS (WITH SERIAL NO)
 // =====================================================================
 
 import 'dart:convert';
 import 'dart:io';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -69,12 +70,12 @@ class MaterialRequisition {
 }
 
 class StoreTx {
-  String id, type, itemId, itemName, category, uom, date, jpName, sourceOrPerson, returnDueDate, remarks, requisitionId, updatedAt;
+  String id, type, itemId, itemName, category, uom, date, jpName, sourceOrPerson, returnDueDate, remarks, requisitionId, serialNo, updatedAt;
   double qty;
   bool isReturnable, isReturned, hasAlarm;
-  StoreTx({required this.id, required this.type, required this.itemId, required this.itemName, required this.category, required this.uom, required this.qty, required this.date, this.jpName = '', this.sourceOrPerson = '', this.isReturnable = false, this.returnDueDate = '', this.isReturned = false, this.hasAlarm = false, this.remarks = '', this.requisitionId = '', required this.updatedAt});
-  Map<String, dynamic> toMap() => {'id': id, 'type': type, 'itemId': itemId, 'itemName': itemName, 'category': category, 'uom': uom, 'qty': qty, 'date': date, 'jpName': jpName, 'sourceOrPerson': sourceOrPerson, 'isReturnable': isReturnable, 'returnDueDate': returnDueDate, 'isReturned': isReturned, 'hasAlarm': hasAlarm, 'remarks': remarks, 'requisitionId': requisitionId, 'updatedAt': updatedAt};
-  factory StoreTx.fromMap(Map<String, dynamic> m) => StoreTx(id: m['id'] ?? '', type: m['type'] ?? 'RECEIVE', itemId: m['itemId'] ?? '', itemName: m['itemName'] ?? '', category: m['category'] ?? '', uom: m['uom'] ?? 'Pcs', qty: (m['qty'] as num?)?.toDouble() ?? 0.0, date: m['date'] ?? '', jpName: m['jpName'] ?? '', sourceOrPerson: m['sourceOrPerson'] ?? '', isReturnable: m['isReturnable'] ?? false, returnDueDate: m['returnDueDate'] ?? '', isReturned: m['isReturned'] ?? false, hasAlarm: m['hasAlarm'] ?? false, remarks: m['remarks'] ?? '', requisitionId: m['requisitionId'] ?? '', updatedAt: m['updatedAt'] ?? '');
+  StoreTx({required this.id, required this.type, required this.itemId, required this.itemName, required this.category, required this.uom, required this.qty, required this.date, this.jpName = '', this.sourceOrPerson = '', this.isReturnable = false, this.returnDueDate = '', this.isReturned = false, this.hasAlarm = false, this.remarks = '', this.requisitionId = '', this.serialNo = '', required this.updatedAt});
+  Map<String, dynamic> toMap() => {'id': id, 'type': type, 'itemId': itemId, 'itemName': itemName, 'category': category, 'uom': uom, 'qty': qty, 'date': date, 'jpName': jpName, 'sourceOrPerson': sourceOrPerson, 'isReturnable': isReturnable, 'returnDueDate': returnDueDate, 'isReturned': isReturned, 'hasAlarm': hasAlarm, 'remarks': remarks, 'requisitionId': requisitionId, 'serialNo': serialNo, 'updatedAt': updatedAt};
+  factory StoreTx.fromMap(Map<String, dynamic> m) => StoreTx(id: m['id'] ?? '', type: m['type'] ?? 'RECEIVE', itemId: m['itemId'] ?? '', itemName: m['itemName'] ?? '', category: m['category'] ?? '', uom: m['uom'] ?? 'Pcs', qty: (m['qty'] as num?)?.toDouble() ?? 0.0, date: m['date'] ?? '', jpName: m['jpName'] ?? '', sourceOrPerson: m['sourceOrPerson'] ?? '', isReturnable: m['isReturnable'] ?? false, returnDueDate: m['returnDueDate'] ?? '', isReturned: m['isReturned'] ?? false, hasAlarm: m['hasAlarm'] ?? false, remarks: m['remarks'] ?? '', requisitionId: m['requisitionId'] ?? '', serialNo: m['serialNo'] ?? '', updatedAt: m['updatedAt'] ?? '');
 }
 
 class JpProfile {
@@ -91,7 +92,7 @@ class TrashItem {
   Map<String, dynamic> toMap() => {'id': id, 'type': type, 'title': title, 'subtitle': subtitle, 'deletedAt': deletedAt, 'rawData': rawData};
   factory TrashItem.fromMap(Map<String, dynamic> m) => TrashItem(id: m['id'] ?? '', type: m['type'] ?? '', title: m['title'] ?? '', subtitle: m['subtitle'] ?? '', deletedAt: m['deletedAt'] ?? '', rawData: m['rawData'] ?? {});
 }// =====================================================================
-// PART 2 OF 5: STATE, STORAGE, TOUCH-HIGHLIGHT, FOLDER PICKER & SYNC
+// PART 2 OF 5: STATE, STORAGE, NATIVE FOLDER PICKER & CLOUD SYNC
 // =====================================================================
 
 class MainStoreScreen extends StatefulWidget {
@@ -184,6 +185,7 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
       JpProfile(id: const Uuid().v4(), name: 'JP-Beta (Workshop)', location: 'Bay 2', updatedAt: DateTime.now().toIso8601String()),
     ];
     catalog = [
+      CatalogItem(id: const Uuid().v4(), name: 'Welding Machine 400A', category: 'Tools & Tackles', uom: 'Set', isReturnableDefault: true, updatedAt: DateTime.now().toIso8601String()),
       CatalogItem(id: const Uuid().v4(), name: 'Grinding Wheel 4"', category: 'Tools & Tackles', uom: 'Pcs', updatedAt: DateTime.now().toIso8601String()),
       CatalogItem(id: const Uuid().v4(), name: 'Welding Electrode E7018', category: 'Welding Consumables', uom: 'Pkt', updatedAt: DateTime.now().toIso8601String()),
       CatalogItem(id: const Uuid().v4(), name: 'Safety Helmet', category: 'Safety & PPE', uom: 'Pcs', isReturnableDefault: true, updatedAt: DateTime.now().toIso8601String()),
@@ -222,42 +224,19 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
     return stock;
   }
 
+  // Native File Manager Folder Picker
   Future<Directory?> _promptFolderSelection() async {
+    try {
+      String? selectedPath = await FilePicker.platform.getDirectoryPath(dialogTitle: 'Select Folder to Save File');
+      if (selectedPath != null && selectedPath.isNotEmpty) {
+        final d = Directory(selectedPath);
+        if (!await d.exists()) await d.create(recursive: true);
+        return d;
+      }
+    } catch (_) {}
+
     final docsDir = await getApplicationDocumentsDirectory();
-    Directory? dlDir;
-    try { dlDir = await getDownloadsDirectory(); } catch (_) {}
-
-    String choice = 'DOCS';
-    final customCtrl = TextEditingController(text: dlDir?.path ?? docsDir.path);
-
-    if (!mounted) return docsDir;
-    final res = await showDialog<String>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (context, setDState) => AlertDialog(
-          title: const Text('Select Save Folder / Location', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              RadioListTile<String>(title: const Text('Documents Folder', style: TextStyle(fontSize: 13)), value: 'DOCS', groupValue: choice, onChanged: (v) => setDState(() => choice = v!)),
-              if (dlDir != null) RadioListTile<String>(title: const Text('Downloads Folder', style: TextStyle(fontSize: 13)), value: 'DL', groupValue: choice, onChanged: (v) => setDState(() => choice = v!)),
-              RadioListTile<String>(title: const Text('Custom Folder Path', style: TextStyle(fontSize: 13)), value: 'CUSTOM', groupValue: choice, onChanged: (v) => setDState(() => choice = v!)),
-              if (choice == 'CUSTOM') TextField(controller: customCtrl, decoration: const InputDecoration(labelText: 'Folder Path')),
-            ],
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, null), child: const Text('Cancel')),
-            ElevatedButton(onPressed: () => Navigator.pop(ctx, choice == 'DL' ? dlDir!.path : (choice == 'CUSTOM' ? customCtrl.text.trim() : docsDir.path)), child: const Text('Save Here')),
-          ],
-        ),
-      ),
-    );
-    if (res != null && res.isNotEmpty) {
-      final d = Directory(res);
-      if (!await d.exists()) await d.create(recursive: true);
-      return d;
-    }
-    return null;
+    return docsDir;
   }
 
   Future<void> _syncWithCloud({bool silent = false}) async {
@@ -363,7 +342,7 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
     );
     return pinResult ?? false;
   }// =====================================================================
-// PART 3 OF 5: REQUISITION MODULE, FOLDER SAVE, RECEIVE & DELETE TRASH
+// PART 3 OF 5: REQUISITIONS, PREV BALANCE, RECEIVE GOODS & EXPORT
 // =====================================================================
 
   Widget _buildRequisitionsScreen() {
@@ -680,7 +659,7 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
       if (mounted) showDialog(context: context, builder: (ctx) => AlertDialog(title: const Text('PDF Saved'), content: SelectableText('Saved in:\n${file.path}'), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))]));
     }
   }// =====================================================================
-// PART 4 OF 5: JP PROFILES, SEARCHABLE ISSUANCE & RETURNS SCREEN
+// PART 4 OF 5: JP PROFILES, SERIAL NO ISSUANCE & RETURNS SCREEN
 // =====================================================================
 
   Widget _buildJpScreen() {
@@ -853,14 +832,16 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
                             itemBuilder: (ctx, idx) {
                               final t = filteredTx[filteredTx.length - 1 - idx];
                               bool isIss = t.type == 'ISSUE';
+                              String srInfo = t.serialNo.isNotEmpty ? ' | Sr: ${t.serialNo}' : '';
+
                               return Container(
                                 margin: const EdgeInsets.only(bottom: 6),
                                 decoration: _cardTouchStyle(t.id),
                                 child: ListTile(
                                   onTap: () => _toggleTouch(t.id),
                                   leading: Icon(isIss ? Icons.arrow_upward : Icons.assignment_return, color: isIss ? Colors.orange : Colors.teal),
-                                  title: Text('${t.itemName} - ${t.qty} ${t.uom}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                                  subtitle: Text('Date: ${t.date} ${t.isReturnable ? (t.isReturned ? "(Returned)" : "(Due: ${t.returnDueDate})") : ""}${t.hasAlarm ? " ⏰ Alarm" : ""}'),
+                                  title: Text('${t.itemName} - ${t.qty} ${t.uom}$srInfo', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                                  subtitle: Text('Date: ${t.date} ${t.isReturnable ? (t.isReturned ? "(Returned)" : "(Due: ${t.returnDueDate})") : ""}${t.hasAlarm ? " | ⏰ Alarm" : ""}'),
                                   trailing: t.isReturnable && !t.isReturned
                                       ? ElevatedButton(onPressed: () => _markItemReturned(t, () => setPState(() {})), child: const Text('Return', style: TextStyle(fontSize: 10)))
                                       : Chip(label: Text(t.type, style: const TextStyle(fontSize: 9, color: Colors.white)), backgroundColor: isIss ? Colors.orange : Colors.teal),
@@ -887,6 +868,7 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
     final Map<String, bool> ret = {for (var i in catalog) i.id: i.isReturnableDefault};
     final Map<String, bool> alarmMap = {for (var i in catalog) i.id: false};
     final Map<String, TextEditingController> qCtrls = {for (var i in catalog) i.id: TextEditingController(text: '1')};
+    final Map<String, TextEditingController> srCtrls = {for (var i in catalog) i.id: TextEditingController()};
     final Map<String, DateTime> returnDates = {for (var i in catalog) i.id: DateTime.now().add(const Duration(days: 7))};
     DateTime selDate = DateTime.now();
     String searchIssue = '';
@@ -913,6 +895,7 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
                         final item = displayList[idx];
                         final isChecked = chk[item.id] ?? false;
                         final ctrl = qCtrls[item.id]!;
+                        final srCtrl = srCtrls[item.id]!;
                         final curStock = _getItemCurrentStock(item.id);
 
                         return Container(
@@ -941,25 +924,35 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
                               ),
                               if (isChecked)
                                 Padding(
-                                  padding: const EdgeInsets.only(left: 36, bottom: 6),
-                                  child: Wrap(
-                                    crossAxisAlignment: WrapCrossAlignment.center,
-                                    spacing: 4,
+                                  padding: const EdgeInsets.only(left: 36, bottom: 6, right: 6),
+                                  child: Column(
                                     children: [
-                                      Checkbox(value: ret[item.id] ?? false, onChanged: (v) => setDState(() => ret[item.id] = v ?? false)),
-                                      const Text('Returnable', style: TextStyle(fontSize: 11, color: Colors.teal, fontWeight: FontWeight.bold)),
-                                      if (ret[item.id] == true) ...[
-                                        TextButton.icon(
-                                          icon: const Icon(Icons.calendar_today, size: 13),
-                                          label: Text('Due: ${DateFormat('dd/MM').format(returnDates[item.id]!)}', style: const TextStyle(fontSize: 11)),
-                                          onPressed: () async {
-                                            final d = await showDatePicker(context: context, initialDate: returnDates[item.id]!, firstDate: DateTime.now(), lastDate: DateTime(2035));
-                                            if (d != null) setDState(() => returnDates[item.id] = d);
-                                          },
-                                        ),
-                                        Checkbox(value: alarmMap[item.id] ?? false, onChanged: (v) => setDState(() => alarmMap[item.id] = v ?? false)),
-                                        const Text('⏰ Set Alarm', style: TextStyle(fontSize: 11, color: Colors.deepOrange, fontWeight: FontWeight.bold)),
-                                      ],
+                                      TextField(
+                                        controller: srCtrl,
+                                        style: const TextStyle(fontSize: 11),
+                                        decoration: const InputDecoration(labelText: 'Serial No (Optional / Ikhtiyari)', contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 4)),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Wrap(
+                                        crossAxisAlignment: WrapCrossAlignment.center,
+                                        spacing: 4,
+                                        children: [
+                                          Checkbox(value: ret[item.id] ?? false, onChanged: (v) => setDState(() => ret[item.id] = v ?? false)),
+                                          const Text('Returnable', style: TextStyle(fontSize: 11, color: Colors.teal, fontWeight: FontWeight.bold)),
+                                          if (ret[item.id] == true) ...[
+                                            TextButton.icon(
+                                              icon: const Icon(Icons.calendar_today, size: 13),
+                                              label: Text('Due: ${DateFormat('dd/MM').format(returnDates[item.id]!)}', style: const TextStyle(fontSize: 11)),
+                                              onPressed: () async {
+                                                final d = await showDatePicker(context: context, initialDate: returnDates[item.id]!, firstDate: DateTime.now(), lastDate: DateTime(2035));
+                                                if (d != null) setDState(() => returnDates[item.id] = d);
+                                              },
+                                            ),
+                                            Checkbox(value: alarmMap[item.id] ?? false, onChanged: (v) => setDState(() => alarmMap[item.id] = v ?? false)),
+                                            const Text('⏰ Set Alarm', style: TextStyle(fontSize: 11, color: Colors.deepOrange, fontWeight: FontWeight.bold)),
+                                          ],
+                                        ],
+                                      ),
                                     ],
                                   ),
                                 ),
@@ -991,6 +984,7 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
                           qty: q,
                           date: DateFormat('yyyy-MM-dd').format(selDate),
                           jpName: jp.name,
+                          serialNo: srCtrls[item.id]?.text.trim() ?? '',
                           isReturnable: ret[item.id] ?? false,
                           hasAlarm: alarmMap[item.id] ?? false,
                           returnDueDate: ret[item.id] == true ? DateFormat('yyyy-MM-dd').format(returnDates[item.id]!) : '',
@@ -1009,8 +1003,8 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
                 child: const Text('Confirm Issue'),
               ),
             ],
-          );
-        },
+          ),
+        ),
       ),
     );
   }
@@ -1020,7 +1014,7 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
     setState(() {
       tx.isReturned = true;
       tx.updatedAt = DateTime.now().toIso8601String();
-      transactions.add(StoreTx(id: const Uuid().v4(), type: 'RETURN', itemId: tx.itemId, itemName: tx.itemName, category: tx.category, uom: tx.uom, qty: tx.qty, date: DateFormat('yyyy-MM-dd').format(DateTime.now()), jpName: tx.jpName, remarks: 'Returned', updatedAt: DateTime.now().toIso8601String()));
+      transactions.add(StoreTx(id: const Uuid().v4(), type: 'RETURN', itemId: tx.itemId, itemName: tx.itemName, category: tx.category, uom: tx.uom, qty: tx.qty, date: DateFormat('yyyy-MM-dd').format(DateTime.now()), jpName: tx.jpName, serialNo: tx.serialNo, remarks: 'Returned', updatedAt: DateTime.now().toIso8601String()));
     });
     _saveData();
     _syncWithCloud(silent: true);
@@ -1032,14 +1026,14 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
     if (dir == null) return;
     final nowStr = DateFormat('yyyyMMdd_HHmm').format(DateTime.now());
     if (!isPdf) {
-      final StringBuffer csv = StringBuffer()..writeln('\uFEFFSAARI OIL FIELD SERVICES - LEDGER: ${jp.name}')..writeln('Type,Date,Item,Category,Qty,UOM,Return Status,Alarm');
-      for (var t in list) { csv.writeln('"${t.type}","${t.date}","${t.itemName}","${t.category}",${t.qty},"${t.uom}","${t.isReturnable ? (t.isReturned ? 'Returned' : 'Pending (Due: ${t.returnDueDate})') : 'Consumed'}","${t.hasAlarm ? 'Yes' : 'No'}"'); }
+      final StringBuffer csv = StringBuffer()..writeln('\uFEFFSAARI OIL FIELD SERVICES - LEDGER: ${jp.name}')..writeln('Type,Date,Item,Serial No,Category,Qty,UOM,Return Status,Alarm');
+      for (var t in list) { csv.writeln('"${t.type}","${t.date}","${t.itemName}","${t.serialNo}","${t.category}",${t.qty},"${t.uom}","${t.isReturnable ? (t.isReturned ? 'Returned' : 'Pending (Due: ${t.returnDueDate})') : 'Consumed'}","${t.hasAlarm ? 'Yes' : 'No'}"'); }
       final file = File('${dir.path}/Ledger_${jp.name}_$nowStr.csv');
       await file.writeAsString(csv.toString());
       if (mounted) showDialog(context: context, builder: (ctx) => AlertDialog(title: const Text('Excel Exported'), content: SelectableText('Saved in:\n${file.path}'), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))]));
     } else {
-      final StringBuffer html = StringBuffer()..writeln('<html><body style="font-family:sans-serif;padding:20px;"><h2>SAARI STORE - LEDGER: ${jp.name}</h2><table border="1" cellpadding="5" style="border-collapse:collapse;width:100%;"><tr><th>Type</th><th>Date</th><th>Item</th><th>Qty</th><th>UOM</th><th>Status</th><th>Alarm</th></tr>');
-      for (var t in list) { html.writeln('<tr><td>${t.type}</td><td>${t.date}</td><td>${t.itemName}</td><td>${t.qty}</td><td>${t.uom}</td><td>${t.isReturnable ? (t.isReturned ? "Returned" : "Pending Due: ${t.returnDueDate}") : "Consumed"}</td><td>${t.hasAlarm ? "Active ⏰" : "-"}</td></tr>'); }
+      final StringBuffer html = StringBuffer()..writeln('<html><body style="font-family:sans-serif;padding:20px;"><h2>SAARI STORE - LEDGER: ${jp.name}</h2><table border="1" cellpadding="5" style="border-collapse:collapse;width:100%;"><tr><th>Type</th><th>Date</th><th>Item</th><th>Serial No</th><th>Qty</th><th>UOM</th><th>Status</th><th>Alarm</th></tr>');
+      for (var t in list) { html.writeln('<tr><td>${t.type}</td><td>${t.date}</td><td>${t.itemName}</td><td>${t.serialNo.isEmpty ? "-" : t.serialNo}</td><td>${t.qty}</td><td>${t.uom}</td><td>${t.isReturnable ? (t.isReturned ? "Returned" : "Pending Due: ${t.returnDueDate}") : "Consumed"}</td><td>${t.hasAlarm ? "Active ⏰" : "-"}</td></tr>'); }
       html.writeln('</table><br><button onclick="window.print()">Print PDF</button></body></html>');
       final file = File('${dir.path}/Ledger_${jp.name}_$nowStr.html');
       await file.writeAsString(html.toString());
@@ -1066,7 +1060,7 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
 
         final filtered = returnList.where((t) {
           final s = q.toLowerCase();
-          return t.jpName.toLowerCase().contains(s) || t.itemName.toLowerCase().contains(s) || t.returnDueDate.contains(s) || t.date.contains(s);
+          return t.jpName.toLowerCase().contains(s) || t.itemName.toLowerCase().contains(s) || t.serialNo.toLowerCase().contains(s) || t.returnDueDate.contains(s) || t.date.contains(s);
         }).toList();
 
         return Scaffold(
@@ -1075,7 +1069,7 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
               Padding(
                 padding: const EdgeInsets.all(8.0),
                 child: TextField(
-                  decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: 'Search by JP Name, Item, or Date...'),
+                  decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: 'Search by JP, Item, Serial No, or Date...'),
                   onChanged: (v) => setRetState(() => q = v.trim()),
                 ),
               ),
@@ -1089,6 +1083,7 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
                           final t = filtered[idx];
                           final due = DateTime.tryParse(t.returnDueDate) ?? DateTime(2099);
                           final isOverdue = due.isBefore(now);
+                          String srTxt = t.serialNo.isNotEmpty ? ' | Sr: ${t.serialNo}' : '';
 
                           return Container(
                             margin: const EdgeInsets.only(bottom: 6),
@@ -1102,7 +1097,7 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
                               leading: Icon(isOverdue ? Icons.warning : (t.hasAlarm ? Icons.alarm : Icons.assignment_return), color: isOverdue ? Colors.red : (t.hasAlarm ? Colors.deepOrange : Colors.teal)),
                               title: Row(
                                 children: [
-                                  Expanded(child: Text('${t.itemName} (${t.qty} ${t.uom})', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13))),
+                                  Expanded(child: Text('${t.itemName} (${t.qty} ${t.uom})$srTxt', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13))),
                                   if (isOverdue) Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), decoration: BoxDecoration(color: Colors.red, borderRadius: BorderRadius.circular(4)), child: const Text('OVERDUE', style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold))),
                                 ],
                               ),
@@ -1451,7 +1446,7 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Text('⚠️ ${overdue.length} Items OVERDUE (Wapsi Ka Time Guzar Gaya!)', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.red, fontSize: 12)),
                 const SizedBox(height: 4),
-                ...overdue.take(3).map((t) => Text('• ${t.itemName} (${t.qty} ${t.uom}) to ${t.jpName} - Due: ${t.returnDueDate}', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold))),
+                ...overdue.take(3).map((t) => Text('• ${t.itemName} (${t.qty} ${t.uom})${t.serialNo.isNotEmpty ? " [Sr: ${t.serialNo}]" : ""} to ${t.jpName} - Due: ${t.returnDueDate}', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold))),
               ]),
             ),
           ),
@@ -1467,7 +1462,7 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
           child: ListTile(
             onTap: () => _toggleTouch(t.id),
             leading: Icon(t.type == 'RECEIVE' ? Icons.arrow_downward : (t.type == 'RETURN' ? Icons.assignment_return : Icons.arrow_upward), color: t.type == 'RECEIVE' ? Colors.green : Colors.orange),
-            title: Text('${t.itemName} - ${t.qty} ${t.uom}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+            title: Text('${t.itemName} - ${t.qty} ${t.uom}${t.serialNo.isNotEmpty ? " (Sr: ${t.serialNo})" : ""}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
             subtitle: Text('Date: ${t.date} | ${t.type == "ISSUE" ? "JP: ${t.jpName}" : "Store"}'),
           ),
         )),
@@ -1506,4 +1501,4 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
       ],
     );
   }
-}
+        }
