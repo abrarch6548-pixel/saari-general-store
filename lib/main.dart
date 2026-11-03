@@ -632,7 +632,7 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
     } finally {
       if (mounted) setState(() => _isSyncing = false);
     }
-  } =====================================================================
+  }// =======================================================
 // PART 4 OF 6: REQUISITIONS MANAGEMENT
 // =====================================================================
 
