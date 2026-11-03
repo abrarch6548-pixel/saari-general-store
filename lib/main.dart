@@ -1,5 +1,5 @@
 // =====================================================================
-// PART 1 OF 5: IMPORTS, APP SETUP & DATA MODELS
+// PART 1 OF 5: IMPORTS, APP SETUP & DATA MODELS (WITH RECYCLE BIN)
 // =====================================================================
 
 import 'dart:convert';
@@ -71,10 +71,10 @@ class MaterialRequisition {
 class StoreTx {
   String id, type, itemId, itemName, category, uom, date, jpName, sourceOrPerson, returnDueDate, remarks, requisitionId, updatedAt;
   double qty;
-  bool isReturnable, isReturned;
-  StoreTx({required this.id, required this.type, required this.itemId, required this.itemName, required this.category, required this.uom, required this.qty, required this.date, this.jpName = '', this.sourceOrPerson = '', this.isReturnable = false, this.returnDueDate = '', this.isReturned = false, this.remarks = '', this.requisitionId = '', required this.updatedAt});
-  Map<String, dynamic> toMap() => {'id': id, 'type': type, 'itemId': itemId, 'itemName': itemName, 'category': category, 'uom': uom, 'qty': qty, 'date': date, 'jpName': jpName, 'sourceOrPerson': sourceOrPerson, 'isReturnable': isReturnable, 'returnDueDate': returnDueDate, 'isReturned': isReturned, 'remarks': remarks, 'requisitionId': requisitionId, 'updatedAt': updatedAt};
-  factory StoreTx.fromMap(Map<String, dynamic> m) => StoreTx(id: m['id'] ?? '', type: m['type'] ?? 'RECEIVE', itemId: m['itemId'] ?? '', itemName: m['itemName'] ?? '', category: m['category'] ?? '', uom: m['uom'] ?? 'Pcs', qty: (m['qty'] as num?)?.toDouble() ?? 0.0, date: m['date'] ?? '', jpName: m['jpName'] ?? '', sourceOrPerson: m['sourceOrPerson'] ?? '', isReturnable: m['isReturnable'] ?? false, returnDueDate: m['returnDueDate'] ?? '', isReturned: m['isReturned'] ?? false, remarks: m['remarks'] ?? '', requisitionId: m['requisitionId'] ?? '', updatedAt: m['updatedAt'] ?? '');
+  bool isReturnable, isReturned, hasAlarm;
+  StoreTx({required this.id, required this.type, required this.itemId, required this.itemName, required this.category, required this.uom, required this.qty, required this.date, this.jpName = '', this.sourceOrPerson = '', this.isReturnable = false, this.returnDueDate = '', this.isReturned = false, this.hasAlarm = false, this.remarks = '', this.requisitionId = '', required this.updatedAt});
+  Map<String, dynamic> toMap() => {'id': id, 'type': type, 'itemId': itemId, 'itemName': itemName, 'category': category, 'uom': uom, 'qty': qty, 'date': date, 'jpName': jpName, 'sourceOrPerson': sourceOrPerson, 'isReturnable': isReturnable, 'returnDueDate': returnDueDate, 'isReturned': isReturned, 'hasAlarm': hasAlarm, 'remarks': remarks, 'requisitionId': requisitionId, 'updatedAt': updatedAt};
+  factory StoreTx.fromMap(Map<String, dynamic> m) => StoreTx(id: m['id'] ?? '', type: m['type'] ?? 'RECEIVE', itemId: m['itemId'] ?? '', itemName: m['itemName'] ?? '', category: m['category'] ?? '', uom: m['uom'] ?? 'Pcs', qty: (m['qty'] as num?)?.toDouble() ?? 0.0, date: m['date'] ?? '', jpName: m['jpName'] ?? '', sourceOrPerson: m['sourceOrPerson'] ?? '', isReturnable: m['isReturnable'] ?? false, returnDueDate: m['returnDueDate'] ?? '', isReturned: m['isReturned'] ?? false, hasAlarm: m['hasAlarm'] ?? false, remarks: m['remarks'] ?? '', requisitionId: m['requisitionId'] ?? '', updatedAt: m['updatedAt'] ?? '');
 }
 
 class JpProfile {
@@ -82,8 +82,16 @@ class JpProfile {
   JpProfile({required this.id, required this.name, this.location = '', required this.updatedAt});
   Map<String, dynamic> toMap() => {'id': id, 'name': name, 'location': location, 'updatedAt': updatedAt};
   factory JpProfile.fromMap(Map<String, dynamic> m) => JpProfile(id: m['id'] ?? '', name: m['name'] ?? '', location: m['location'] ?? '', updatedAt: m['updatedAt'] ?? '');
+}
+
+class TrashItem {
+  String id, type, title, subtitle, deletedAt;
+  Map<String, dynamic> rawData;
+  TrashItem({required this.id, required this.type, required this.title, required this.subtitle, required this.deletedAt, required this.rawData});
+  Map<String, dynamic> toMap() => {'id': id, 'type': type, 'title': title, 'subtitle': subtitle, 'deletedAt': deletedAt, 'rawData': rawData};
+  factory TrashItem.fromMap(Map<String, dynamic> m) => TrashItem(id: m['id'] ?? '', type: m['type'] ?? '', title: m['title'] ?? '', subtitle: m['subtitle'] ?? '', deletedAt: m['deletedAt'] ?? '', rawData: m['rawData'] ?? {});
 }// =====================================================================
-// PART 2 OF 5: STATE, STORAGE, STOCK CALCULATOR & CLOUD SYNC
+// PART 2 OF 5: STATE, STORAGE, TOUCH-HIGHLIGHT, FOLDER PICKER & SYNC
 // =====================================================================
 
 class MainStoreScreen extends StatefulWidget {
@@ -98,10 +106,13 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
   List<JpProfile> jpList = [];
   List<StoreTx> transactions = [];
   List<MaterialRequisition> requisitions = [];
+  List<TrashItem> recycleBin = [];
 
   List<String> deletedItemIds = [], deletedJpIds = [], deletedTxIds = [], deletedReqIds = [];
+  Set<String> touchedIds = {};
+
   final List<String> commonUoms = ['Pcs', 'Mtr', 'Kg', 'Ltr', 'Box', 'Roll', 'Set', 'Pair', 'Drum', 'Can', 'Pkt', 'Bundle', 'Bag', 'Sheet'];
-  final List<String> commonCategories = ['General', 'Tools & Tackles', 'Safety & PPE', 'Electrical', 'Mechanical Spares', 'Welding Consumables', 'Chemical & Paint', 'Civil Material', 'Fasteners (Nut/Bolt)', 'Hose & Fittings'];
+  final List<String> commonCategories = ['General', 'Tools & Tackles', 'Safety & PPE', 'Electrical', 'Mechanical Spares', 'Welding Consumables', 'Chemical & Paint', 'Civil Material'];
 
   String _securityPin = '1234', _firebaseUrl = '', _cloudStoreId = 'saari_general_store', _lastSyncStatus = 'Not Synced';
   bool _isSyncing = false, _isSettingsUnlocked = false;
@@ -112,6 +123,22 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
     _loadData().then((_) {
       if (_firebaseUrl.isNotEmpty) _syncWithCloud(silent: true);
     });
+  }
+
+  void _toggleTouch(String id) {
+    setState(() {
+      if (touchedIds.contains(id)) touchedIds.remove(id);
+      else touchedIds.add(id);
+    });
+  }
+
+  BoxDecoration _cardTouchStyle(String id) {
+    final isT = touchedIds.contains(id);
+    return BoxDecoration(
+      color: isT ? const Color(0xFFFEF3C7) : Colors.white,
+      borderRadius: BorderRadius.circular(8),
+      border: Border.all(color: isT ? const Color(0xFFF25F22) : Colors.black12, width: isT ? 2.0 : 1.0),
+    );
   }
 
   Future<File> _getFile() async {
@@ -130,6 +157,7 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
           jpList = (data['jpList'] as List? ?? []).map((x) => JpProfile.fromMap(x)).toList();
           transactions = (data['transactions'] as List? ?? []).map((x) => StoreTx.fromMap(x)).toList();
           requisitions = (data['requisitions'] as List? ?? []).map((x) => MaterialRequisition.fromMap(x)).toList();
+          recycleBin = (data['recycleBin'] as List? ?? []).map((x) => TrashItem.fromMap(x)).toList();
           if (data['deletedItemIds'] != null) deletedItemIds = List<String>.from(data['deletedItemIds']);
           if (data['deletedJpIds'] != null) deletedJpIds = List<String>.from(data['deletedJpIds']);
           if (data['deletedTxIds'] != null) deletedTxIds = List<String>.from(data['deletedTxIds']);
@@ -171,6 +199,7 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
         'jpList': jpList.map((x) => x.toMap()).toList(),
         'transactions': transactions.map((x) => x.toMap()).toList(),
         'requisitions': requisitions.map((x) => x.toMap()).toList(),
+        'recycleBin': recycleBin.map((x) => x.toMap()).toList(),
         'deletedItemIds': deletedItemIds,
         'deletedJpIds': deletedJpIds,
         'deletedTxIds': deletedTxIds,
@@ -186,12 +215,49 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
     double stock = 0.0;
     for (var t in transactions) {
       if (t.itemId == itemId) {
-        if (t.type == 'RECEIVE' || t.type == 'RETURN') stock += t.qty;
+        if (t.type == 'RECEIVE' || t.type == 'RETURN' || t.type == 'ADJUST') stock += t.qty;
         if (t.type == 'ISSUE') stock -= t.qty;
-        if (t.type == 'ADJUST') stock += t.qty;
       }
     }
     return stock;
+  }
+
+  Future<Directory?> _promptFolderSelection() async {
+    final docsDir = await getApplicationDocumentsDirectory();
+    Directory? dlDir;
+    try { dlDir = await getDownloadsDirectory(); } catch (_) {}
+
+    String choice = 'DOCS';
+    final customCtrl = TextEditingController(text: dlDir?.path ?? docsDir.path);
+
+    if (!mounted) return docsDir;
+    final res = await showDialog<String>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDState) => AlertDialog(
+          title: const Text('Select Save Folder / Location', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              RadioListTile<String>(title: const Text('Documents Folder', style: TextStyle(fontSize: 13)), value: 'DOCS', groupValue: choice, onChanged: (v) => setDState(() => choice = v!)),
+              if (dlDir != null) RadioListTile<String>(title: const Text('Downloads Folder', style: TextStyle(fontSize: 13)), value: 'DL', groupValue: choice, onChanged: (v) => setDState(() => choice = v!)),
+              RadioListTile<String>(title: const Text('Custom Folder Path', style: TextStyle(fontSize: 13)), value: 'CUSTOM', groupValue: choice, onChanged: (v) => setDState(() => choice = v!)),
+              if (choice == 'CUSTOM') TextField(controller: customCtrl, decoration: const InputDecoration(labelText: 'Folder Path')),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, null), child: const Text('Cancel')),
+            ElevatedButton(onPressed: () => Navigator.pop(ctx, choice == 'DL' ? dlDir!.path : (choice == 'CUSTOM' ? customCtrl.text.trim() : docsDir.path)), child: const Text('Save Here')),
+          ],
+        ),
+      ),
+    );
+    if (res != null && res.isNotEmpty) {
+      final d = Directory(res);
+      if (!await d.exists()) await d.create(recursive: true);
+      return d;
+    }
+    return null;
   }
 
   Future<void> _syncWithCloud({bool silent = false}) async {
@@ -297,7 +363,7 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
     );
     return pinResult ?? false;
   }// =====================================================================
-// PART 3 OF 5: REQUISITIONS, EDIT/DELETE & PDF/EXCEL EXPORT
+// PART 3 OF 5: REQUISITION MODULE, FOLDER SAVE, RECEIVE & DELETE TRASH
 // =====================================================================
 
   Widget _buildRequisitionsScreen() {
@@ -309,7 +375,7 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
         onPressed: () => _openRequisitionDialog(),
       ),
       body: requisitions.isEmpty
-          ? const Center(child: Text('No Requisition Created Yet.'))
+          ? const Center(child: Text('No Requisition Found.'))
           : ListView.builder(
               padding: const EdgeInsets.fromLTRB(10, 10, 10, 80),
               itemCount: requisitions.length,
@@ -319,9 +385,11 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
                 double totalRec = req.items.fold(0.0, (sum, i) => sum + i.receivedQty);
                 Color stColor = req.status == 'Received' ? Colors.green : (req.status == 'Partial' ? Colors.blue : Colors.orange);
 
-                return Card(
+                return Container(
                   margin: const EdgeInsets.only(bottom: 8),
+                  decoration: _cardTouchStyle(req.id),
                   child: ExpansionTile(
+                    onExpansionChanged: (_) => _toggleTouch(req.id),
                     title: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
@@ -329,7 +397,7 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
                         Chip(label: Text(req.status, style: TextStyle(color: stColor, fontSize: 10, fontWeight: FontWeight.bold)), backgroundColor: stColor.withOpacity(0.12)),
                       ],
                     ),
-                    subtitle: Text('Date: ${req.date} | Target: ${req.targetStore}\nItems: ${req.items.length} | Req: $totalReq | Received: $totalRec', style: const TextStyle(fontSize: 11)),
+                    subtitle: Text('Date: ${req.date} | Target: ${req.targetStore}\nItems: ${req.items.length} | Req: $totalReq | Rec: $totalRec', style: const TextStyle(fontSize: 11)),
                     children: [
                       const Divider(height: 1),
                       ...req.items.map((line) => Padding(
@@ -339,7 +407,7 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
                               children: [
                                 Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                                   Text(line.itemName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                                  Text('Previous Balance: ${line.prevStock} ${line.uom}', style: const TextStyle(fontSize: 10, color: Colors.blueGrey)),
+                                  Text('Prev Balance: ${line.prevStock} ${line.uom}', style: const TextStyle(fontSize: 10, color: Colors.blueGrey)),
                                 ])),
                                 Text('Req: ${line.reqQty} ${line.uom}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Color(0xFF0B2545))),
                                 const SizedBox(width: 8),
@@ -357,7 +425,7 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
                             OutlinedButton.icon(icon: const Icon(Icons.picture_as_pdf, size: 14, color: Colors.red), label: const Text('PDF', style: TextStyle(fontSize: 11, color: Colors.red)), onPressed: () => _exportRequisitionDoc(req, isPdf: true)),
                             ElevatedButton.icon(style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0B2545)), icon: const Icon(Icons.check, size: 14, color: Colors.white), label: const Text('Receive Goods', style: TextStyle(fontSize: 11, color: Colors.white)), onPressed: () => _openRequisitionReceiveDialog(req)),
                             IconButton(icon: const Icon(Icons.edit, size: 16, color: Colors.blue), onPressed: () => _openRequisitionDialog(existingReq: req)),
-                            IconButton(icon: const Icon(Icons.delete, size: 16, color: Colors.red), onPressed: () => _deleteRequisition(req.id)),
+                            IconButton(icon: const Icon(Icons.delete, size: 16, color: Colors.red), onPressed: () => _deleteRequisition(req)),
                           ],
                         ),
                       ),
@@ -580,32 +648,39 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
     );
   }
 
-  void _deleteRequisition(String id) async {
+  void _deleteRequisition(MaterialRequisition req) async {
     if (!await _authenticateAction('Delete Requisition')) return;
-    setState(() { requisitions.removeWhere((r) => r.id == id); deletedReqIds.add(id); });
+    setState(() {
+      requisitions.removeWhere((r) => r.id == req.id);
+      deletedReqIds.add(req.id);
+      recycleBin.insert(0, TrashItem(id: req.id, type: 'REQUISITION', title: 'Requisition: ${req.reqNo}', subtitle: 'Target: ${req.targetStore} | Date: ${req.date}', deletedAt: DateTime.now().toIso8601String(), rawData: req.toMap()));
+    });
     _saveData();
     _syncWithCloud(silent: true);
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Requisition moved to Recycle Bin!')));
   }
 
   Future<void> _exportRequisitionDoc(MaterialRequisition req, {required bool isPdf}) async {
-    final dir = await getApplicationDocumentsDirectory();
+    final dir = await _promptFolderSelection();
+    if (dir == null) return;
     final nowStr = DateFormat('yyyyMMdd_HHmm').format(DateTime.now());
+
     if (!isPdf) {
       final StringBuffer csv = StringBuffer()..writeln('\uFEFFSAARI OIL FIELD SERVICES - REQUISITION ${req.reqNo}')..writeln('Date: ${req.date} | Target: ${req.targetStore}')..writeln('Item,Unit,Previous Balance,Requested,Received');
       for (var l in req.items) { csv.writeln('"${l.itemName}","${l.uom}",${l.prevStock},${l.reqQty},${l.receivedQty}'); }
       final file = File('${dir.path}/Req_${req.reqNo}_$nowStr.csv');
       await file.writeAsString(csv.toString());
-      if (mounted) showDialog(context: context, builder: (ctx) => AlertDialog(title: const Text('Excel Saved'), content: SelectableText(file.path), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))]));
+      if (mounted) showDialog(context: context, builder: (ctx) => AlertDialog(title: const Text('Excel Saved'), content: SelectableText('Saved in:\n${file.path}'), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))]));
     } else {
       final StringBuffer html = StringBuffer()..writeln('<html><head><meta charset="utf-8"></head><body style="font-family:sans-serif;padding:20px;"><h2>SAARI OIL FIELD SERVICES - REQUISITION</h2><p><b>Req No:</b> ${req.reqNo} | <b>Date:</b> ${req.date} | <b>Target:</b> ${req.targetStore}</p><table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;"><tr><th>Item</th><th>Unit</th><th>Previous Balance</th><th>Requested</th><th>Received</th></tr>');
       for (var l in req.items) { html.writeln('<tr><td>${l.itemName}</td><td>${l.uom}</td><td>${l.prevStock}</td><td>${l.reqQty}</td><td>${l.receivedQty}</td></tr>'); }
       html.writeln('</table><br><button onclick="window.print()">Print / Save PDF</button></body></html>');
       final file = File('${dir.path}/Req_${req.reqNo}_$nowStr.html');
       await file.writeAsString(html.toString());
-      if (mounted) showDialog(context: context, builder: (ctx) => AlertDialog(title: const Text('Printable PDF Saved'), content: SelectableText(file.path), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))]));
+      if (mounted) showDialog(context: context, builder: (ctx) => AlertDialog(title: const Text('PDF Saved'), content: SelectableText('Saved in:\n${file.path}'), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))]));
     }
   }// =====================================================================
-// PART 4 OF 5: JP PROFILES, ISSUANCE WITH FREQUENCY SORT & RETURN
+// PART 4 OF 5: JP PROFILES, SEARCHABLE ISSUANCE & RETURNS SCREEN
 // =====================================================================
 
   Widget _buildJpScreen() {
@@ -624,13 +699,22 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
               itemBuilder: (ctx, idx) {
                 final jp = jpList[idx];
                 final int totalIssues = transactions.where((t) => t.jpName == jp.name && t.type == 'ISSUE').length;
-                return Card(
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 6),
+                  decoration: _cardTouchStyle(jp.id),
                   child: ListTile(
+                    onTap: () { _toggleTouch(jp.id); _openJpDetailProfileScreen(jp); },
                     leading: const CircleAvatar(backgroundColor: Color(0xFF0B2545), child: Icon(Icons.engineering, color: Colors.white, size: 18)),
                     title: Text(jp.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                     subtitle: Text('Location: ${jp.location.isEmpty ? "Site" : jp.location} | Total Issues: $totalIssues', style: const TextStyle(fontSize: 11)),
-                    trailing: const Icon(Icons.arrow_forward_ios, size: 14),
-                    onTap: () => _openJpDetailProfileScreen(jp),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(icon: const Icon(Icons.edit, size: 16, color: Colors.blue), onPressed: () => _openJpDialog(existingJp: jp)),
+                        IconButton(icon: const Icon(Icons.delete, size: 16, color: Colors.red), onPressed: () => _deleteJpProfile(jp)),
+                        const Icon(Icons.arrow_forward_ios, size: 14),
+                      ],
+                    ),
                   ),
                 );
               },
@@ -683,6 +767,18 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
         ],
       ),
     );
+  }
+
+  void _deleteJpProfile(JpProfile jp) async {
+    if (!await _authenticateAction('Delete JP Profile')) return;
+    setState(() {
+      jpList.removeWhere((j) => j.id == jp.id);
+      deletedJpIds.add(jp.id);
+      recycleBin.insert(0, TrashItem(id: jp.id, type: 'JP', title: 'JP: ${jp.name}', subtitle: 'Location: ${jp.location}', deletedAt: DateTime.now().toIso8601String(), rawData: jp.toMap()));
+    });
+    _saveData();
+    _syncWithCloud(silent: true);
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('JP moved to Recycle Bin!')));
   }
 
   void _openJpDetailProfileScreen(JpProfile jp) {
@@ -757,11 +853,14 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
                             itemBuilder: (ctx, idx) {
                               final t = filteredTx[filteredTx.length - 1 - idx];
                               bool isIss = t.type == 'ISSUE';
-                              return Card(
+                              return Container(
+                                margin: const EdgeInsets.only(bottom: 6),
+                                decoration: _cardTouchStyle(t.id),
                                 child: ListTile(
+                                  onTap: () => _toggleTouch(t.id),
                                   leading: Icon(isIss ? Icons.arrow_upward : Icons.assignment_return, color: isIss ? Colors.orange : Colors.teal),
                                   title: Text('${t.itemName} - ${t.qty} ${t.uom}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                                  subtitle: Text('Date: ${t.date} ${t.isReturnable ? (t.isReturned ? "(Returned)" : "(Due: ${t.returnDueDate})") : ""}'),
+                                  subtitle: Text('Date: ${t.date} ${t.isReturnable ? (t.isReturned ? "(Returned)" : "(Due: ${t.returnDueDate})") : ""}${t.hasAlarm ? " ⏰ Alarm" : ""}'),
                                   trailing: t.isReturnable && !t.isReturned
                                       ? ElevatedButton(onPressed: () => _markItemReturned(t, () => setPState(() {})), child: const Text('Return', style: TextStyle(fontSize: 10)))
                                       : Chip(label: Text(t.type, style: const TextStyle(fontSize: 9, color: Colors.white)), backgroundColor: isIss ? Colors.orange : Colors.teal),
@@ -786,84 +885,132 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
 
     final Map<String, bool> chk = {for (var i in catalog) i.id: false};
     final Map<String, bool> ret = {for (var i in catalog) i.id: i.isReturnableDefault};
+    final Map<String, bool> alarmMap = {for (var i in catalog) i.id: false};
     final Map<String, TextEditingController> qCtrls = {for (var i in catalog) i.id: TextEditingController(text: '1')};
+    final Map<String, DateTime> returnDates = {for (var i in catalog) i.id: DateTime.now().add(const Duration(days: 7))};
     DateTime selDate = DateTime.now();
+    String searchIssue = '';
 
     await showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
-        builder: (context, setDState) => AlertDialog(
-          title: Text('Issue to ${jp.name} (Top = Frequent)', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
-          content: SizedBox(
-            width: 500,
-            height: 450,
-            child: ListView.builder(
-              itemCount: sortedCat.length,
-              itemBuilder: (ctx, idx) {
-                final item = sortedCat[idx];
-                final isChecked = chk[item.id] ?? false;
-                final ctrl = qCtrls[item.id]!;
-                final curStock = _getItemCurrentStock(item.id);
+        builder: (context, setDState) {
+          final displayList = sortedCat.where((i) => i.name.toLowerCase().contains(searchIssue.toLowerCase()) || i.category.toLowerCase().contains(searchIssue.toLowerCase())).toList();
 
-                return Column(
-                  children: [
-                    Row(
-                      children: [
-                        Checkbox(value: isChecked, onChanged: (v) => setDState(() => chk[item.id] = v ?? false)),
-                        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                          Text(item.name, style: TextStyle(fontWeight: isChecked ? FontWeight.bold : FontWeight.normal, fontSize: 12)),
-                          Text('Stock: $curStock ${item.uom} | Freq: ${freq[item.id] ?? 0}', style: TextStyle(fontSize: 10, color: curStock > 0 ? Colors.green : Colors.red)),
-                        ])),
-                        if (isChecked) ...[
-                          IconButton(icon: const Icon(Icons.remove_circle, size: 18, color: Colors.red), onPressed: () {
-                            double q = double.tryParse(ctrl.text) ?? 1;
-                            if (q > 1) { ctrl.text = (q - 1).toStringAsFixed(0); setDState(() {}); }
-                          }),
-                          SizedBox(width: 40, child: TextField(controller: ctrl, keyboardType: TextInputType.number, textAlign: TextAlign.center)),
-                          IconButton(icon: const Icon(Icons.add_circle, size: 18, color: Colors.green), onPressed: () {
-                            double q = double.tryParse(ctrl.text) ?? 0;
-                            ctrl.text = (q + 1).toStringAsFixed(0); setDState(() {});
-                          }),
-                        ],
-                      ],
+          return AlertDialog(
+            title: Text('Issue to ${jp.name}', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+            content: SizedBox(
+              width: 520,
+              height: 480,
+              child: Column(
+                children: [
+                  TextField(decoration: const InputDecoration(prefixIcon: Icon(Icons.search, size: 16), hintText: 'Quick Search Material...'), onChanged: (v) => setDState(() => searchIssue = v.trim())),
+                  const SizedBox(height: 6),
+                  Expanded(
+                    child: ListView.builder(
+                      itemCount: displayList.length,
+                      itemBuilder: (ctx, idx) {
+                        final item = displayList[idx];
+                        final isChecked = chk[item.id] ?? false;
+                        final ctrl = qCtrls[item.id]!;
+                        final curStock = _getItemCurrentStock(item.id);
+
+                        return Container(
+                          color: isChecked ? const Color(0xFFFFF7ED) : Colors.transparent,
+                          child: Column(
+                            children: [
+                              Row(
+                                children: [
+                                  Checkbox(value: isChecked, onChanged: (v) => setDState(() => chk[item.id] = v ?? false)),
+                                  Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                    Text(item.name, style: TextStyle(fontWeight: isChecked ? FontWeight.bold : FontWeight.normal, fontSize: 12)),
+                                    Text('Stock: $curStock ${item.uom} | Freq: ${freq[item.id] ?? 0}', style: TextStyle(fontSize: 10, color: curStock > 0 ? Colors.green : Colors.red)),
+                                  ])),
+                                  if (isChecked) ...[
+                                    IconButton(icon: const Icon(Icons.remove_circle, size: 18, color: Colors.red), onPressed: () {
+                                      double q = double.tryParse(ctrl.text) ?? 1;
+                                      if (q > 1) { ctrl.text = (q - 1).toStringAsFixed(0); setDState(() {}); }
+                                    }),
+                                    SizedBox(width: 40, child: TextField(controller: ctrl, keyboardType: TextInputType.number, textAlign: TextAlign.center)),
+                                    IconButton(icon: const Icon(Icons.add_circle, size: 18, color: Colors.green), onPressed: () {
+                                      double q = double.tryParse(ctrl.text) ?? 0;
+                                      ctrl.text = (q + 1).toStringAsFixed(0); setDState(() {});
+                                    }),
+                                  ],
+                                ],
+                              ),
+                              if (isChecked)
+                                Padding(
+                                  padding: const EdgeInsets.only(left: 36, bottom: 6),
+                                  child: Wrap(
+                                    crossAxisAlignment: WrapCrossAlignment.center,
+                                    spacing: 4,
+                                    children: [
+                                      Checkbox(value: ret[item.id] ?? false, onChanged: (v) => setDState(() => ret[item.id] = v ?? false)),
+                                      const Text('Returnable', style: TextStyle(fontSize: 11, color: Colors.teal, fontWeight: FontWeight.bold)),
+                                      if (ret[item.id] == true) ...[
+                                        TextButton.icon(
+                                          icon: const Icon(Icons.calendar_today, size: 13),
+                                          label: Text('Due: ${DateFormat('dd/MM').format(returnDates[item.id]!)}', style: const TextStyle(fontSize: 11)),
+                                          onPressed: () async {
+                                            final d = await showDatePicker(context: context, initialDate: returnDates[item.id]!, firstDate: DateTime.now(), lastDate: DateTime(2035));
+                                            if (d != null) setDState(() => returnDates[item.id] = d);
+                                          },
+                                        ),
+                                        Checkbox(value: alarmMap[item.id] ?? false, onChanged: (v) => setDState(() => alarmMap[item.id] = v ?? false)),
+                                        const Text('⏰ Set Alarm', style: TextStyle(fontSize: 11, color: Colors.deepOrange, fontWeight: FontWeight.bold)),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                            ],
+                          ),
+                        );
+                      },
                     ),
-                    if (isChecked)
-                      Padding(
-                        padding: const EdgeInsets.only(left: 40),
-                        child: Row(children: [
-                          Checkbox(value: ret[item.id] ?? false, onChanged: (v) => setDState(() => ret[item.id] = v ?? false)),
-                          const Text('Returnable (Wapsi)', style: TextStyle(fontSize: 10, color: Colors.teal)),
-                        ]),
-                      ),
-                  ],
-                );
-              },
+                  ),
+                ],
+              ),
             ),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-            ElevatedButton(
-              onPressed: () async {
-                final List<StoreTx> issues = [];
-                for (var item in catalog) {
-                  if (chk[item.id] == true) {
-                    double q = double.tryParse(qCtrls[item.id]?.text ?? '0') ?? 0;
-                    if (q > 0) {
-                      issues.add(StoreTx(id: const Uuid().v4(), type: 'ISSUE', itemId: item.id, itemName: item.name, category: item.category, uom: item.uom, qty: q, date: DateFormat('yyyy-MM-dd').format(selDate), jpName: jp.name, isReturnable: ret[item.id] ?? false, returnDueDate: ret[item.id] == true ? DateFormat('yyyy-MM-dd').format(DateTime.now().add(const Duration(days: 7))) : '', updatedAt: DateTime.now().toIso8601String()));
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+              ElevatedButton(
+                onPressed: () async {
+                  final List<StoreTx> issues = [];
+                  for (var item in catalog) {
+                    if (chk[item.id] == true) {
+                      double q = double.tryParse(qCtrls[item.id]?.text ?? '0') ?? 0;
+                      if (q > 0) {
+                        issues.add(StoreTx(
+                          id: const Uuid().v4(),
+                          type: 'ISSUE',
+                          itemId: item.id,
+                          itemName: item.name,
+                          category: item.category,
+                          uom: item.uom,
+                          qty: q,
+                          date: DateFormat('yyyy-MM-dd').format(selDate),
+                          jpName: jp.name,
+                          isReturnable: ret[item.id] ?? false,
+                          hasAlarm: alarmMap[item.id] ?? false,
+                          returnDueDate: ret[item.id] == true ? DateFormat('yyyy-MM-dd').format(returnDates[item.id]!) : '',
+                          updatedAt: DateTime.now().toIso8601String(),
+                        ));
+                      }
                     }
                   }
-                }
-                if (issues.isEmpty) return;
-                if (!await _authenticateAction('Issue Material')) return;
-                setState(() => transactions.addAll(issues));
-                _saveData();
-                _syncWithCloud(silent: true);
-                Navigator.pop(ctx);
-              },
-              child: const Text('Confirm Issue'),
-            ),
-          ],
-        ),
+                  if (issues.isEmpty) return;
+                  if (!await _authenticateAction('Issue Material')) return;
+                  setState(() => transactions.addAll(issues));
+                  _saveData();
+                  _syncWithCloud(silent: true);
+                  Navigator.pop(ctx);
+                },
+                child: const Text('Confirm Issue'),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -881,24 +1028,102 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
   }
 
   Future<void> _exportJpLedgerDoc(JpProfile jp, List<StoreTx> list, {required bool isPdf}) async {
-    final dir = await getApplicationDocumentsDirectory();
+    final dir = await _promptFolderSelection();
+    if (dir == null) return;
     final nowStr = DateFormat('yyyyMMdd_HHmm').format(DateTime.now());
     if (!isPdf) {
-      final StringBuffer csv = StringBuffer()..writeln('\uFEFFSAARI OIL FIELD SERVICES - LEDGER: ${jp.name}')..writeln('Type,Date,Item,Category,Qty,UOM,Return Status');
-      for (var t in list) { csv.writeln('"${t.type}","${t.date}","${t.itemName}","${t.category}",${t.qty},"${t.uom}","${t.isReturnable ? (t.isReturned ? 'Returned' : 'Pending') : 'Consumed'}"'); }
+      final StringBuffer csv = StringBuffer()..writeln('\uFEFFSAARI OIL FIELD SERVICES - LEDGER: ${jp.name}')..writeln('Type,Date,Item,Category,Qty,UOM,Return Status,Alarm');
+      for (var t in list) { csv.writeln('"${t.type}","${t.date}","${t.itemName}","${t.category}",${t.qty},"${t.uom}","${t.isReturnable ? (t.isReturned ? 'Returned' : 'Pending (Due: ${t.returnDueDate})') : 'Consumed'}","${t.hasAlarm ? 'Yes' : 'No'}"'); }
       final file = File('${dir.path}/Ledger_${jp.name}_$nowStr.csv');
       await file.writeAsString(csv.toString());
-      if (mounted) showDialog(context: context, builder: (ctx) => AlertDialog(title: const Text('Excel Exported'), content: SelectableText(file.path), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))]));
+      if (mounted) showDialog(context: context, builder: (ctx) => AlertDialog(title: const Text('Excel Exported'), content: SelectableText('Saved in:\n${file.path}'), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))]));
     } else {
-      final StringBuffer html = StringBuffer()..writeln('<html><body style="font-family:sans-serif;padding:20px;"><h2>SAARI STORE - LEDGER: ${jp.name}</h2><table border="1" cellpadding="5" style="border-collapse:collapse;width:100%;"><tr><th>Type</th><th>Date</th><th>Item</th><th>Qty</th><th>UOM</th><th>Status</th></tr>');
-      for (var t in list) { html.writeln('<tr><td>${t.type}</td><td>${t.date}</td><td>${t.itemName}</td><td>${t.qty}</td><td>${t.uom}</td><td>${t.isReturnable ? (t.isReturned ? "Returned" : "Pending Return") : "Consumed"}</td></tr>'); }
+      final StringBuffer html = StringBuffer()..writeln('<html><body style="font-family:sans-serif;padding:20px;"><h2>SAARI STORE - LEDGER: ${jp.name}</h2><table border="1" cellpadding="5" style="border-collapse:collapse;width:100%;"><tr><th>Type</th><th>Date</th><th>Item</th><th>Qty</th><th>UOM</th><th>Status</th><th>Alarm</th></tr>');
+      for (var t in list) { html.writeln('<tr><td>${t.type}</td><td>${t.date}</td><td>${t.itemName}</td><td>${t.qty}</td><td>${t.uom}</td><td>${t.isReturnable ? (t.isReturned ? "Returned" : "Pending Due: ${t.returnDueDate}") : "Consumed"}</td><td>${t.hasAlarm ? "Active ⏰" : "-"}</td></tr>'); }
       html.writeln('</table><br><button onclick="window.print()">Print PDF</button></body></html>');
       final file = File('${dir.path}/Ledger_${jp.name}_$nowStr.html');
       await file.writeAsString(html.toString());
-      if (mounted) showDialog(context: context, builder: (ctx) => AlertDialog(title: const Text('PDF Ready'), content: SelectableText(file.path), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))]));
+      if (mounted) showDialog(context: context, builder: (ctx) => AlertDialog(title: const Text('PDF Ready'), content: SelectableText('Saved in:\n${file.path}'), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))]));
     }
+  }
+
+  Widget _buildReturnsAndAlarmsScreen() {
+    String q = '';
+    return StatefulBuilder(
+      builder: (context, setRetState) {
+        final now = DateTime.now();
+        final returnList = transactions.where((t) => t.isReturnable && !t.isReturned && t.type == 'ISSUE').toList();
+
+        returnList.sort((a, b) {
+          final da = DateTime.tryParse(a.returnDueDate) ?? DateTime(2099);
+          final db = DateTime.tryParse(b.returnDueDate) ?? DateTime(2099);
+          final aOver = da.isBefore(now);
+          final bOver = db.isBefore(now);
+          if (aOver && !bOver) return -1;
+          if (!aOver && bOver) return 1;
+          return da.compareTo(db);
+        });
+
+        final filtered = returnList.where((t) {
+          final s = q.toLowerCase();
+          return t.jpName.toLowerCase().contains(s) || t.itemName.toLowerCase().contains(s) || t.returnDueDate.contains(s) || t.date.contains(s);
+        }).toList();
+
+        return Scaffold(
+          body: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(8.0),
+                child: TextField(
+                  decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: 'Search by JP Name, Item, or Date...'),
+                  onChanged: (v) => setRetState(() => q = v.trim()),
+                ),
+              ),
+              Expanded(
+                child: filtered.isEmpty
+                    ? const Center(child: Text('No Pending Returnable Items!'))
+                    : ListView.builder(
+                        padding: const EdgeInsets.fromLTRB(8, 0, 8, 80),
+                        itemCount: filtered.length,
+                        itemBuilder: (ctx, idx) {
+                          final t = filtered[idx];
+                          final due = DateTime.tryParse(t.returnDueDate) ?? DateTime(2099);
+                          final isOverdue = due.isBefore(now);
+
+                          return Container(
+                            margin: const EdgeInsets.only(bottom: 6),
+                            decoration: BoxDecoration(
+                              color: isOverdue ? Colors.red.shade50 : (touchedIds.contains(t.id) ? const Color(0xFFFEF3C7) : Colors.white),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: isOverdue ? Colors.red : (touchedIds.contains(t.id) ? const Color(0xFFF25F22) : Colors.black12), width: isOverdue || touchedIds.contains(t.id) ? 2.0 : 1.0),
+                            ),
+                            child: ListTile(
+                              onTap: () => _toggleTouch(t.id),
+                              leading: Icon(isOverdue ? Icons.warning : (t.hasAlarm ? Icons.alarm : Icons.assignment_return), color: isOverdue ? Colors.red : (t.hasAlarm ? Colors.deepOrange : Colors.teal)),
+                              title: Row(
+                                children: [
+                                  Expanded(child: Text('${t.itemName} (${t.qty} ${t.uom})', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13))),
+                                  if (isOverdue) Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), decoration: BoxDecoration(color: Colors.red, borderRadius: BorderRadius.circular(4)), child: const Text('OVERDUE', style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold))),
+                                ],
+                              ),
+                              subtitle: Text('JP: ${t.jpName} | Return Due: ${t.returnDueDate}\nIssued: ${t.date} ${t.hasAlarm ? "| ⏰ Alarm Active" : ""}'),
+                              trailing: ElevatedButton(
+                                style: ElevatedButton.styleFrom(backgroundColor: isOverdue ? Colors.red : Colors.teal),
+                                onPressed: () => _markItemReturned(t, () => setRetState(() {})),
+                                child: const Text('Return', style: TextStyle(color: Colors.white, fontSize: 11)),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }// =====================================================================
-// PART 5 OF 5: CATALOG, STOCK ADJUST, SETTINGS PIN LOCK & DASHBOARD
+// PART 5 OF 5: CATALOG, STOCK ADJUST, EXCEL/PDF, RECYCLE BIN & SETTINGS
 // =====================================================================
 
   Widget _buildCatalogScreen() {
@@ -917,15 +1142,18 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
               itemBuilder: (ctx, idx) {
                 final item = catalog[idx];
                 final stock = _getItemCurrentStock(item.id);
-                return Card(
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 6),
+                  decoration: _cardTouchStyle(item.id),
                   child: ListTile(
+                    onTap: () => _toggleTouch(item.id),
                     title: Text(item.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                     subtitle: Text('${item.category} | Stock: $stock ${item.uom}'),
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         IconButton(icon: const Icon(Icons.edit, size: 18, color: Colors.blue), onPressed: () => _openCatalogItemDialog(existingItem: item)),
-                        IconButton(icon: const Icon(Icons.delete, size: 18, color: Colors.red), onPressed: () => _deleteCatalogItem(item.id)),
+                        IconButton(icon: const Icon(Icons.delete, size: 18, color: Colors.red), onPressed: () => _deleteCatalogItem(item)),
                       ],
                     ),
                   ),
@@ -982,11 +1210,16 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
     );
   }
 
-  void _deleteCatalogItem(String id) async {
+  void _deleteCatalogItem(CatalogItem item) async {
     if (!await _authenticateAction('Delete Item')) return;
-    setState(() { catalog.removeWhere((i) => i.id == id); deletedItemIds.add(id); });
+    setState(() {
+      catalog.removeWhere((i) => i.id == item.id);
+      deletedItemIds.add(item.id);
+      recycleBin.insert(0, TrashItem(id: item.id, type: 'ITEM', title: item.name, subtitle: 'Category: ${item.category} | UOM: ${item.uom}', deletedAt: DateTime.now().toIso8601String(), rawData: item.toMap()));
+    });
     _saveData();
     _syncWithCloud(silent: true);
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Item moved to Recycle Bin!')));
   }
 
   void _openStockAdjustDialog(CatalogItem item) async {
@@ -1043,7 +1276,11 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Text('Physical Stock Balance', style: TextStyle(fontWeight: FontWeight.bold)),
-              ElevatedButton.icon(icon: const Icon(Icons.file_download, size: 14), label: const Text('Export'), onPressed: () => _exportStockDoc()),
+              Row(children: [
+                ElevatedButton.icon(icon: const Icon(Icons.table_chart, size: 14), label: const Text('Excel'), onPressed: () => _exportStockDoc(isPdf: false)),
+                const SizedBox(width: 6),
+                ElevatedButton.icon(icon: const Icon(Icons.picture_as_pdf, size: 14), label: const Text('PDF'), onPressed: () => _exportStockDoc(isPdf: true)),
+              ]),
             ],
           ),
         ),
@@ -1053,15 +1290,20 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
             itemBuilder: (ctx, idx) {
               final item = catalog[idx];
               final stock = _getItemCurrentStock(item.id);
-              return ListTile(
-                title: Text(item.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                subtitle: Text(item.category),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text('$stock ${item.uom}', style: TextStyle(fontWeight: FontWeight.bold, color: stock > 0 ? Colors.green : Colors.red)),
-                    IconButton(icon: const Icon(Icons.tune, size: 18), onPressed: () => _openStockAdjustDialog(item)),
-                  ],
+              return Container(
+                margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: _cardTouchStyle(item.id),
+                child: ListTile(
+                  onTap: () => _toggleTouch(item.id),
+                  title: Text(item.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                  subtitle: Text(item.category),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text('$stock ${item.uom}', style: TextStyle(fontWeight: FontWeight.bold, color: stock > 0 ? Colors.green : Colors.red)),
+                      IconButton(icon: const Icon(Icons.tune, size: 18), onPressed: () => _openStockAdjustDialog(item)),
+                    ],
+                  ),
                 ),
               );
             },
@@ -1071,13 +1313,81 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
     );
   }
 
-  Future<void> _exportStockDoc() async {
-    final dir = await getApplicationDocumentsDirectory();
-    final StringBuffer csv = StringBuffer()..writeln('\uFEFFSAARI STORE - STOCK BALANCE')..writeln('Item,Category,Stock,UOM');
-    for (var i in catalog) { csv.writeln('"${i.name}","${i.category}",${_getItemCurrentStock(i.id)},"${i.uom}"'); }
-    final file = File('${dir.path}/Stock_${DateTime.now().millisecondsSinceEpoch}.csv');
-    await file.writeAsString(csv.toString());
-    if (mounted) showDialog(context: context, builder: (ctx) => AlertDialog(title: const Text('Exported'), content: SelectableText(file.path), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))]));
+  Future<void> _exportStockDoc({required bool isPdf}) async {
+    final dir = await _promptFolderSelection();
+    if (dir == null) return;
+    final nowStr = DateFormat('yyyyMMdd_HHmm').format(DateTime.now());
+
+    if (!isPdf) {
+      final StringBuffer csv = StringBuffer()..writeln('\uFEFFSAARI STORE - STOCK BALANCE')..writeln('Item,Category,Stock,UOM');
+      for (var i in catalog) { csv.writeln('"${i.name}","${i.category}",${_getItemCurrentStock(i.id)},"${i.uom}"'); }
+      final file = File('${dir.path}/Stock_$nowStr.csv');
+      await file.writeAsString(csv.toString());
+      if (mounted) showDialog(context: context, builder: (ctx) => AlertDialog(title: const Text('Excel Saved'), content: SelectableText('Saved in:\n${file.path}'), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))]));
+    } else {
+      final StringBuffer html = StringBuffer()..writeln('<html><body style="font-family:sans-serif;padding:20px;"><h2>SAARI OIL FIELD SERVICES - STOCK BALANCE</h2><table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;"><tr><th>Item</th><th>Category</th><th>Stock Balance</th><th>UOM</th></tr>');
+      for (var i in catalog) { html.writeln('<tr><td>${i.name}</td><td>${i.category}</td><td>${_getItemCurrentStock(i.id)}</td><td>${i.uom}</td></tr>'); }
+      html.writeln('</table><br><button onclick="window.print()">Print / Save PDF</button></body></html>');
+      final file = File('${dir.path}/Stock_$nowStr.html');
+      await file.writeAsString(html.toString());
+      if (mounted) showDialog(context: context, builder: (ctx) => AlertDialog(title: const Text('PDF Saved'), content: SelectableText('Saved in:\n${file.path}'), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))]));
+    }
+  }
+
+  void _openRecycleBinScreen() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => StatefulBuilder(
+          builder: (ctx, setTrashState) => Scaffold(
+            appBar: AppBar(title: const Text('Recycle Bin (Restore/Delete)'), backgroundColor: const Color(0xFF0B2545), foregroundColor: Colors.white),
+            body: recycleBin.isEmpty
+                ? const Center(child: Text('Recycle Bin is Empty.'))
+                : ListView.builder(
+                    padding: const EdgeInsets.all(10),
+                    itemCount: recycleBin.length,
+                    itemBuilder: (ctx, idx) {
+                      final item = recycleBin[idx];
+                      return Card(
+                        child: ListTile(
+                          title: Text(item.title, style: const TextStyle(fontWeight: FontWeight.bold)),
+                          subtitle: Text('${item.subtitle}\nDeleted: ${item.deletedAt}'),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              ElevatedButton(
+                                style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+                                onPressed: () {
+                                  setState(() {
+                                    recycleBin.removeWhere((t) => t.id == item.id);
+                                    if (item.type == 'ITEM') { deletedItemIds.remove(item.id); catalog.add(CatalogItem.fromMap(item.rawData)); }
+                                    if (item.type == 'JP') { deletedJpIds.remove(item.id); jpList.add(JpProfile.fromMap(item.rawData)); }
+                                    if (item.type == 'REQUISITION') { deletedReqIds.remove(item.id); requisitions.add(MaterialRequisition.fromMap(item.rawData)); }
+                                  });
+                                  _saveData();
+                                  _syncWithCloud(silent: true);
+                                  setTrashState(() {});
+                                },
+                                child: const Text('Restore', style: TextStyle(color: Colors.white, fontSize: 11)),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.delete_forever, color: Colors.red),
+                                onPressed: () {
+                                  setState(() => recycleBin.removeWhere((t) => t.id == item.id));
+                                  _saveData();
+                                  setTrashState(() {});
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -1088,14 +1398,15 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
         foregroundColor: Colors.white,
         title: const Text('SAARI GENERAL STORE', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
         actions: [
-          IconButton(icon: const Icon(Icons.cloud_sync), onPressed: () => _syncWithCloud(silent: false)),
+          IconButton(icon: const Icon(Icons.restore_from_trash), tooltip: 'Recycle Bin', onPressed: _openRecycleBinScreen),
+          IconButton(icon: const Icon(Icons.cloud_sync), tooltip: 'Sync Cloud', onPressed: () => _syncWithCloud(silent: false)),
         ],
       ),
       body: _buildCurrentScreen(),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _navIndex,
         onDestinationSelected: (i) async {
-          if (i == 4 && !_isSettingsUnlocked) {
+          if (i == 5 && !_isSettingsUnlocked) {
             if (await _authenticateAction('Open Settings')) {
               setState(() { _isSettingsUnlocked = true; _navIndex = i; });
             }
@@ -1107,6 +1418,7 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
           NavigationDestination(icon: Icon(Icons.dashboard), label: 'Dashboard'),
           NavigationDestination(icon: Icon(Icons.post_add), label: 'Requisitions'),
           NavigationDestination(icon: Icon(Icons.groups), label: 'JPs'),
+          NavigationDestination(icon: Icon(Icons.assignment_return), label: 'Returns/Alarms'),
           NavigationDestination(icon: Icon(Icons.inventory_2), label: 'Store Items'),
           NavigationDestination(icon: Icon(Icons.settings), label: 'Settings'),
         ],
@@ -1118,7 +1430,8 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
     if (_navIndex == 0) return _buildDashboardScreen();
     if (_navIndex == 1) return _buildRequisitionsScreen();
     if (_navIndex == 2) return _buildJpScreen();
-    if (_navIndex == 3) return DefaultTabController(length: 2, child: Scaffold(appBar: const TabBar(labelColor: Color(0xFF0B2545), tabs: [Tab(text: 'Catalog'), Tab(text: 'Stock')]), body: TabBarView(children: [_buildCatalogScreen(), _buildStockBalanceScreen()])));
+    if (_navIndex == 3) return _buildReturnsAndAlarmsScreen();
+    if (_navIndex == 4) return DefaultTabController(length: 2, child: Scaffold(appBar: const TabBar(labelColor: Color(0xFF0B2545), tabs: [Tab(text: 'Catalog'), Tab(text: 'Stock Balance')]), body: TabBarView(children: [_buildCatalogScreen(), _buildStockBalanceScreen()])));
     return _buildSettingsScreen();
   }
 
@@ -1132,24 +1445,31 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
         if (overdue.isNotEmpty)
           Card(
             color: Colors.red.shade50,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: const BorderSide(color: Colors.red, width: 1.5)),
             child: Padding(
               padding: const EdgeInsets.all(10),
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('${overdue.length} Items OVERDUE (Wapsi Ka Time Guzar Gaya!)', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.red, fontSize: 12)),
-                ...overdue.take(3).map((t) => Text('• ${t.itemName} (${t.qty} ${t.uom}) to ${t.jpName} - Due: ${t.returnDueDate}', style: const TextStyle(fontSize: 11))),
+                Text('⚠️ ${overdue.length} Items OVERDUE (Wapsi Ka Time Guzar Gaya!)', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.red, fontSize: 12)),
+                const SizedBox(height: 4),
+                ...overdue.take(3).map((t) => Text('• ${t.itemName} (${t.qty} ${t.uom}) to ${t.jpName} - Due: ${t.returnDueDate}', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold))),
               ]),
             ),
           ),
         Card(
           color: const Color(0xFF0B2545),
-          child: Padding(padding: const EdgeInsets.all(14), child: Text('Total Catalog Items: ${catalog.length}\nTotal JPs: ${jpList.length}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
+          child: Padding(padding: const EdgeInsets.all(14), child: Text('Total Catalog Items: ${catalog.length}\nTotal JPs Active: ${jpList.length}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
         ),
         const SizedBox(height: 8),
         const Text('Recent Store Transactions', style: TextStyle(fontWeight: FontWeight.bold)),
-        ...transactions.reversed.take(6).map((t) => ListTile(
-          leading: Icon(t.type == 'RECEIVE' ? Icons.arrow_downward : (t.type == 'RETURN' ? Icons.assignment_return : Icons.arrow_upward), color: t.type == 'RECEIVE' ? Colors.green : Colors.orange),
-          title: Text('${t.itemName} - ${t.qty} ${t.uom}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-          subtitle: Text('Date: ${t.date} | ${t.type == "ISSUE" ? "JP: ${t.jpName}" : "Store"}'),
+        ...transactions.reversed.take(6).map((t) => Container(
+          margin: const EdgeInsets.only(top: 4),
+          decoration: _cardTouchStyle(t.id),
+          child: ListTile(
+            onTap: () => _toggleTouch(t.id),
+            leading: Icon(t.type == 'RECEIVE' ? Icons.arrow_downward : (t.type == 'RETURN' ? Icons.assignment_return : Icons.arrow_upward), color: t.type == 'RECEIVE' ? Colors.green : Colors.orange),
+            title: Text('${t.itemName} - ${t.qty} ${t.uom}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+            subtitle: Text('Date: ${t.date} | ${t.type == "ISSUE" ? "JP: ${t.jpName}" : "Store"}'),
+          ),
         )),
       ],
     );
@@ -1173,14 +1493,14 @@ class _MainStoreScreenState extends State<MainStoreScreen> {
         ElevatedButton(onPressed: () { setState(() { _firebaseUrl = urlCtrl.text.trim(); _cloudStoreId = keyCtrl.text.trim(); }); _saveData(); _syncWithCloud(silent: false); }, child: const Text('Save Firebase')),
         const Divider(height: 20),
         ListTile(
-          title: const Text('Master PIN', style: TextStyle(fontWeight: FontWeight.bold)),
-          subtitle: Text('Current: $_securityPin'),
+          title: const Text('Master PIN Security', style: TextStyle(fontWeight: FontWeight.bold)),
+          subtitle: Text('Current PIN: $_securityPin'),
           trailing: ElevatedButton(
             onPressed: () {
               final nCtrl = TextEditingController();
               showDialog(context: context, builder: (ctx) => AlertDialog(title: const Text('New PIN'), content: TextField(controller: nCtrl, keyboardType: TextInputType.number), actions: [ElevatedButton(onPressed: () { if (nCtrl.text.isNotEmpty) { setState(() => _securityPin = nCtrl.text.trim()); _saveData(); Navigator.pop(ctx); } }, child: const Text('Save'))]));
             },
-            child: const Text('Change'),
+            child: const Text('Change PIN'),
           ),
         ),
       ],
